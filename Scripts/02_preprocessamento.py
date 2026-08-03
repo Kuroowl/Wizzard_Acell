@@ -11,10 +11,7 @@ from scipy import signal
 # 🎨 1. PADRÃO ESTÉTICO (my_axis)
 # ==============================================================================
 def my_axis(ax, title="", xlabel="Tempo (s)", ylabel="Aceleração (m/s²)", grid=True):
-    """Aplica a estilização padrão aos eixos do Matplotlib.
-    
-    Ajuste este bloco para alterar o estilo visual de todos os gráficos do projeto.
-    """
+    """Aplica a estilização padrão aos eixos do Matplotlib."""
     # Remove as bordas superior e direita (estilo limpo)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -38,7 +35,7 @@ def my_axis(ax, title="", xlabel="Tempo (s)", ylabel="Aceleração (m/s²)", gri
 
 
 # ==============================================================================
-# 🛠️ 2. MÓDULOS DE TRATAMENTO DO SINAL (Fácil edição e aprimoramento)
+# 🛠️ 2. MÓDULOS DE TRATAMENTO DO SINAL
 # ==============================================================================
 def remover_dc_offset(sinal: np.ndarray) -> np.ndarray:
     """Remove a tendência linear / componente DC (offset) do sinal."""
@@ -46,13 +43,7 @@ def remover_dc_offset(sinal: np.ndarray) -> np.ndarray:
 
 
 def aplicar_filtro_passa_baixa(sinal: np.ndarray, fs: float = 1000.0, cutoff: float = 200.0, ordem: int = 4) -> np.ndarray:
-    """Aplica filtro Butterworth passa-baixa (zero-phase / filtfilt).
-    
-    Parâmetros editáveis:
-        - fs: Frequência de amostragem em Hz
-        - cutoff: Frequência de corte em Hz
-        - ordem: Ordem do filtro
-    """
+    """Aplica filtro Butterworth passa-baixa (zero-phase / filtfilt)."""
     nyquist = 0.5 * fs
     normal_cutoff = cutoff / nyquist
     b, a = signal.butter(ordem, normal_cutoff, btype='low', analog=False)
@@ -60,13 +51,7 @@ def aplicar_filtro_passa_baixa(sinal: np.ndarray, fs: float = 1000.0, cutoff: fl
 
 
 def normalizar_sinal(sinal: np.ndarray, metodo: str = "zscore") -> np.ndarray:
-    """Normaliza o sinal.
-    
-    Opções de 'metodo':
-        - 'zscore': Média 0 e Desvio Padrão 1
-        - 'max': Escala pelo valor absoluto máximo [-1, 1]
-        - 'none': Mantém a amplitude original
-    """
+    """Normaliza o sinal."""
     if metodo == "zscore":
         std = np.std(sinal)
         return (sinal - np.mean(sinal)) / std if std != 0 else sinal
@@ -78,15 +63,9 @@ def normalizar_sinal(sinal: np.ndarray, metodo: str = "zscore") -> np.ndarray:
 
 def pipeline_preprocessamento(sinal: np.ndarray, fs: float = 1000.0) -> np.ndarray:
     """Encadeamento sequencial das etapas de pré-processamento."""
-    # 1. Remoção de DC Offset
     sinal_tratado = remover_dc_offset(sinal)
-    
-    # 2. Filtragem Passa-Baixa (Ajuste a frequência de corte aqui se necessário)
     sinal_tratado = aplicar_filtro_passa_baixa(sinal_tratado, fs=fs, cutoff=200.0)
-    
-    # 3. Normalização
     sinal_tratado = normalizar_sinal(sinal_tratado, metodo="zscore")
-    
     return sinal_tratado
 
 
@@ -94,19 +73,19 @@ def pipeline_preprocessamento(sinal: np.ndarray, fs: float = 1000.0) -> np.ndarr
 # 📊 3. PROCESSAMENTO DOS DADOS E GERAÇÃO DAS FIGURAS
 # ==============================================================================
 def processar_e_gerar_figuras(df_bruto: pd.DataFrame, raiz_path: Path):
-    """Aplica o pré-processamento e salva os gráficos na pasta DadosTratados/Wizzard_Output/Figuras/"""
+    """Aplica o pré-processamento e salva os gráficos na pasta DadosTratados/Figuras/"""
     
-    # Cria a pasta de destino dentro do diretório selecionado
-    pasta_figuras = raiz_path / "DadosTratados" / "Wizzard_Output" / "Figuras"
+    # Pasta de figuras dentro da pasta do projeto do usuário
+    pasta_figuras = raiz_path / "DadosTratados" / "Figuras"
     pasta_figuras.mkdir(parents=True, exist_ok=True)
 
-    # Identifica colunas de valores (excluindo colunas de metadados)
+    # Identifica colunas de valores (excluindo metadados)
     colunas_metadados = ["sensor", "condicao", "ordem_ensaio", "arquivo_origem"]
     colunas_sinal = [c for c in df_bruto.columns if c not in colunas_metadados]
 
     df_processado_lista = []
 
-    # Agrupa por Sensor (ACL / PZT) e Condição/Ensaio (T1, T2, ..., Tn)
+    # Agrupa por Sensor (ACL / PZT) e Condição (T1, T2, ..., Tn)
     grupos = df_bruto.groupby(["sensor", "condicao"])
 
     print(f"🎨 Gerando figuras e aplicando pré-processamento para {len(grupos)} combinações...")
@@ -114,30 +93,26 @@ def processar_e_gerar_figuras(df_bruto: pd.DataFrame, raiz_path: Path):
     for (sensor, condicao), df_grupo in grupos:
         df_grupo = df_grupo.copy().reset_index(drop=True)
         
-        # Subpasta para organizar figuras por sensor (ex: Figuras/ACL/ e Figuras/PZT/)
-        pasta_sensor_fig = pasta_figuras / sensor
+        # Subpasta por sensor (ex: Figuras/ACL/ e Figuras/PZT/)
+        pasta_sensor_fig = pasta_figuras / str(sensor)
         pasta_sensor_fig.mkdir(parents=True, exist_ok=True)
 
-        # Identifica e aplica o pré-processamento em cada canal/coluna de dados
         for canal in colunas_sinal:
             sinal_bruto = df_grupo[canal].to_numpy()
 
-            # Evita processar colunas que não contenham dados numéricos de sinal
             if not np.issubdtype(sinal_bruto.dtype, np.number):
                 continue
 
-            # Aplica a cadeia de tratamento
+            # Aplica tratamento
             sinal_tratado = pipeline_preprocessamento(sinal_bruto)
             df_grupo[f"{canal}_tratado"] = sinal_tratado
 
-            # Eixo do tempo (se não houver coluna de tempo, cria uma baseada no índice)
             tempo = df_grupo["tempo"].to_numpy() if "tempo" in df_grupo.columns else np.arange(len(sinal_tratado))
 
             # --- PLOTAGEM DA SÉRIE TEMPORAL ---
             fig, ax = plt.subplots(figsize=(10, 4), dpi=150)
             ax.plot(tempo, sinal_tratado, color='#1F77B4', linewidth=1.0, label='Sinal Tratado')
             
-            # Aplica o padrão visual estético
             my_axis(
                 ax, 
                 title=f"Série Temporal - Sensor: {sensor} | Condição: {condicao} | Canal: {canal}",
@@ -155,7 +130,6 @@ def processar_e_gerar_figuras(df_bruto: pd.DataFrame, raiz_path: Path):
 
         df_processado_lista.append(df_grupo)
 
-    # Consolida os dados pré-processados
     df_processado_final = pd.concat(df_processado_lista, ignore_index=True)
     return df_processado_final
 
@@ -173,27 +147,35 @@ def main():
     args = parser.parse_args()
 
     raiz_path = Path(args.data_dir)
-    input_parquet = Path("outputs") / "intermediarios" / "01_dados_brutos.parquet"
+    pasta_dados = raiz_path / "DadosTratados"
 
-    if not input_parquet.exists():
-        print(f"❌ Arquivo de entrada não encontrado: {input_parquet}")
+    # Busca o arquivo de leitura gerado na Etapa 01 (.pkl ou .parquet)
+    caminho_pkl = pasta_dados / "DadosTratados.pkl"
+    caminho_parquet = pasta_dados / "DadosTratados.parquet"
+
+    if caminho_pkl.exists():
+        print(f"📥 Lendo dados consolidados da etapa 01: {caminho_pkl.name}")
+        df_bruto = pd.read_pickle(caminho_pkl)
+    elif caminho_parquet.exists():
+        print(f"📥 Lendo dados consolidados da etapa 01: {caminho_parquet.name}")
+        df_bruto = pd.read_parquet(caminho_parquet)
+    else:
+        print(f"❌ Nenhum arquivo de entrada encontrado em: {pasta_dados.resolve()}")
+        print(" Certifique-se de que a etapa 01_leitura.py foi executada corretamente.")
         exit(1)
 
     try:
-        print("📥 Lendo dados consolidados da etapa 01...")
-        df_bruto = pd.read_parquet(input_parquet)
-
         # Processa os sinais e gera as figuras
         df_tratado = processar_e_gerar_figuras(df_bruto, raiz_path)
 
-        # Salva o dataset pré-processado para uso no 03_fft.py
-        output_parquet = Path("outputs") / "intermediarios" / "02_dados_preprocessados.parquet"
-        df_tratado.to_parquet(output_parquet, index=False)
+        # Salva o dataset pré-processado na mesma pasta DadosTratados para uso no 03_fft.py
+        output_pkl = pasta_dados / "02_dados_preprocessados.pkl"
+        df_tratado.to_pickle(output_pkl)
 
         print("\n" + "="*50)
         print("✅ Pré-processamento concluído com sucesso!")
-        print(f"📁 Figuras salvas em: {(raiz_path / 'DadosTratados' / 'Wizzard_Output' / 'Figuras').resolve()}")
-        print(f"💾 Dados processados salvos em: {output_parquet.resolve()}")
+        print(f"📁 Figuras salvas em: {(raiz_path / 'DadosTratados' / 'Figuras').resolve()}")
+        print(f"💾 Dados processados salvos em: {output_pkl.resolve()}")
         print("="*50 + "\n")
 
     except Exception as e:
