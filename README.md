@@ -18,7 +18,6 @@ Wizzard_Acell/
 │   ├── 06_waterfall.py        # Gráfico Waterfall espectral
 │   └── 07_relatorio.py        # Consolidação e exportação de relatórios
 │
-├── outputs/                   # Saídas geradas pelo pipeline (criada automaticamente)
 ├── run_pipeline.py            # Script principal orquestrador
 ├── requirements.txt           # Dependências do projeto
 └── README.md
