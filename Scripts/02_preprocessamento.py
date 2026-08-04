@@ -1,36 +1,62 @@
 import argparse
-import os
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
+from matplotlib.ticker import AutoMinorLocator
 
 
 # ==============================================================================
-# 🎨 1. PADRÃO ESTÉTICO (my_axis)
+# 🎨 1. FUNÇÃO DE ESTILIZAÇÃO GRÁFICA (Padrão Científico)
 # ==============================================================================
-def my_axis(ax, title="", xlabel="Tempo (s)", ylabel="Aceleração (m/s²)", grid=True):
-    """Aplica a estilização padrão aos eixos do Matplotlib."""
-    # Remove as bordas superior e direita (estilo limpo)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(1.2)
-    ax.spines['bottom'].set_linewidth(1.2)
+def My_axis(ax, font=14, 
+            ticklengthmajor=10, ticklengthminor=5,
+            tickwidthmajor=2, tickwidthminor=1.5,
+            setaxis=['', '', ''], xlim=[0, 1], ylim=[-1, 1],
+            legbox=[0.98, 0.98, 1, 10], logx=False, logy=False):
+    """
+    Aplica a estilização científica avançada nos eixos do Matplotlib.
+    Adiciona minor ticks, direciona marcas para dentro e espelha marcas nos eixos opostos.
+    """
+    ticksize = font
+    
+    # Configuração de escala e marcadores secundários (minor locators)
+    if logx:
+        ax.set_xscale("log")
+    else:
+        ax.xaxis.set_minor_locator(AutoMinorLocator(4))
+        
+    if logy:
+        ax.set_yscale("log")
+    else:
+        ax.yaxis.set_minor_locator(AutoMinorLocator(4))
 
-    # Cores e fontes
-    ax.set_title(title, fontsize=12, fontweight='bold', pad=12, color='#2C3E50')
-    ax.set_xlabel(xlabel, fontsize=10, fontweight='bold', color='#34495E')
-    ax.set_ylabel(ylabel, fontsize=10, fontweight='bold', color='#34495E')
-
-    # Marcadores dos eixos
-    ax.tick_params(axis='both', which='major', labelsize=9, colors='#2C3E50')
-
-    # Grid
-    if grid:
-        ax.grid(True, linestyle='--', alpha=0.5, color='#BDC3C7')
-
-    plt.tight_layout()
+    # Estilização das marcas dos eixos (ticks para dentro)
+    ax.tick_params(axis='both', which='major', labelsize=ticksize,
+                    width=tickwidthmajor, length=ticklengthmajor, direction='in', pad=8)
+    ax.tick_params(axis='both', which='minor',
+                    width=tickwidthminor, length=ticklengthminor, direction='in', pad=8)
+    
+    # Ativa marcas no topo e na direita (espelhamento)
+    ax.tick_params(axis='x', which='both', top=True, labeltop=False)
+    ax.tick_params(axis='y', which='both', right=True, labelright=False)
+    
+    # Rótulos e Título
+    ax.set_title(setaxis[0], fontsize=font + 2)
+    ax.set_xlabel(setaxis[1], fontsize=font)
+    ax.set_ylabel(setaxis[2], fontsize=font)
+    
+    # Limites dos eixos
+    ax.set_xlim(xlim[0], xlim[1])
+    ax.set_ylim(ylim[0], ylim[1])
+    
+    # Legenda (apenas se existirem rótulos declarados no plot)
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(loc='upper right', bbox_to_anchor=(legbox[0], legbox[1]), 
+                  fancybox=True, shadow=True, ncol=legbox[2], fontsize=legbox[3])
+    
     return ax
 
 
@@ -38,12 +64,12 @@ def my_axis(ax, title="", xlabel="Tempo (s)", ylabel="Aceleração (m/s²)", gri
 # 🛠️ 2. MÓDULOS DE TRATAMENTO DO SINAL
 # ==============================================================================
 def remover_dc_offset(sinal: np.ndarray) -> np.ndarray:
-    """Remove a tendência linear / componente DC (offset) do sinal."""
+    """Remove o offset DC / tendência do sinal."""
     return signal.detrend(sinal, type='constant')
 
 
 def aplicar_filtro_passa_baixa(sinal: np.ndarray, fs: float = 1000.0, cutoff: float = 200.0, ordem: int = 4) -> np.ndarray:
-    """Aplica filtro Butterworth passa-baixa (zero-phase / filtfilt)."""
+    """Aplica filtro Butterworth passa-baixa (zero-phase com filtfilt)."""
     nyquist = 0.5 * fs
     normal_cutoff = cutoff / nyquist
     b, a = signal.butter(ordem, normal_cutoff, btype='low', analog=False)
@@ -51,7 +77,7 @@ def aplicar_filtro_passa_baixa(sinal: np.ndarray, fs: float = 1000.0, cutoff: fl
 
 
 def normalizar_sinal(sinal: np.ndarray, metodo: str = "zscore") -> np.ndarray:
-    """Normaliza o sinal."""
+    """Normaliza a amplitude do sinal."""
     if metodo == "zscore":
         std = np.std(sinal)
         return (sinal - np.mean(sinal)) / std if std != 0 else sinal
@@ -62,7 +88,7 @@ def normalizar_sinal(sinal: np.ndarray, metodo: str = "zscore") -> np.ndarray:
 
 
 def pipeline_preprocessamento(sinal: np.ndarray, fs: float = 1000.0) -> np.ndarray:
-    """Encadeamento sequencial das etapas de pré-processamento."""
+    """Encadeamento sequencial das etapas de tratamento do sinal."""
     sinal_tratado = remover_dc_offset(sinal)
     sinal_tratado = aplicar_filtro_passa_baixa(sinal_tratado, fs=fs, cutoff=200.0)
     sinal_tratado = normalizar_sinal(sinal_tratado, metodo="zscore")
@@ -70,117 +96,103 @@ def pipeline_preprocessamento(sinal: np.ndarray, fs: float = 1000.0) -> np.ndarr
 
 
 # ==============================================================================
-# 📊 3. PROCESSAMENTO DOS DADOS E GERAÇÃO DAS FIGURAS
+# 🚀 3. EXECUÇÃO PRINCIPAL DO SCRIPT
 # ==============================================================================
-def processar_e_gerar_figuras(df_bruto: pd.DataFrame, raiz_path: Path):
-    """Aplica o pré-processamento e salva os gráficos na pasta DadosTratados/Figuras/"""
-    
-    # Pasta de figuras dentro da pasta do projeto do usuário
-    pasta_figuras = raiz_path / "DadosTratados" / "Figuras"
-    pasta_figuras.mkdir(parents=True, exist_ok=True)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, required=True)
+    args = parser.parse_args()
 
-    # Identifica colunas de valores (excluindo metadados)
+    raiz_path = Path(args.data_dir)
+    nome_projeto = raiz_path.name
+
+    # 1. Entrada esperada do script 01_leitura.py
+    input_file = raiz_path / "DadosTratados" / f"{nome_projeto}_leitura.pkl"
+
+    if not input_file.exists():
+        print(f"❌ Arquivo de entrada não encontrado: {input_file.resolve()}")
+        print(" Certifique-se de executar a etapa 01_leitura antes desta.")
+        exit(1)
+
+    print(f"📖 Lendo dados da etapa de leitura: {input_file.name}")
+    df = pd.read_pickle(input_file)
+
     colunas_metadados = ["sensor", "condicao", "ordem_ensaio", "arquivo_origem"]
-    colunas_sinal = [c for c in df_bruto.columns if c not in colunas_metadados]
+    colunas_sinal = [col for col in df.columns if col not in colunas_metadados]
 
     df_processado_lista = []
 
-    # Agrupa por Sensor (ACL / PZT) e Condição (T1, T2, ..., Tn)
-    grupos = df_bruto.groupby(["sensor", "condicao"])
+    # 2. Iteração sobre cada grupo de Sensor (ACL, PZT) e Condição (T1, T2, ...)
+    grupos = df.groupby(["sensor", "condicao"])
+    print(f"⚙️ Processando sinais e gerando figuras para {len(grupos)} combinações...")
 
-    print(f"🎨 Gerando figuras e aplicando pré-processamento para {len(grupos)} combinações...")
+    for (sensor, condicao), group in grupos:
+        group_copy = group.copy().reset_index(drop=True)
 
-    for (sensor, condicao), df_grupo in grupos:
-        df_grupo = df_grupo.copy().reset_index(drop=True)
-        
-        # Subpasta por sensor (ex: Figuras/ACL/ e Figuras/PZT/)
-        pasta_sensor_fig = pasta_figuras / str(sensor)
-        pasta_sensor_fig.mkdir(parents=True, exist_ok=True)
+        # Pasta de saída das figuras: DadosTratados/Figuras/ACL/T1/
+        pasta_figuras = raiz_path / "DadosTratados" / "Figuras" / str(sensor) / str(condicao)
+        pasta_figuras.mkdir(parents=True, exist_ok=True)
 
-        for canal in colunas_sinal:
-            sinal_bruto = df_grupo[canal].to_numpy()
+        for idx_ch, col_canal in enumerate(colunas_sinal, start=1):
+            sinal_bruto = group_copy[col_canal].to_numpy()
 
             if not np.issubdtype(sinal_bruto.dtype, np.number):
                 continue
 
-            # Aplica tratamento
+            # Aplica o pipeline de tratamento de sinal
             sinal_tratado = pipeline_preprocessamento(sinal_bruto)
-            df_grupo[f"{canal}_tratado"] = sinal_tratado
+            group_copy[f"{col_canal}_tratado"] = sinal_tratado
 
-            tempo = df_grupo["tempo"].to_numpy() if "tempo" in df_grupo.columns else np.arange(len(sinal_tratado))
+            # Definição do eixo temporal
+            tempo_plot = range(len(sinal_tratado))
 
-            # --- PLOTAGEM DA SÉRIE TEMPORAL ---
-            fig, ax = plt.subplots(figsize=(10, 4), dpi=150)
-            ax.plot(tempo, sinal_tratado, color='#1F77B4', linewidth=1.0, label='Sinal Tratado')
-            
-            my_axis(
-                ax, 
-                title=f"Série Temporal - Sensor: {sensor} | Condição: {condicao} | Canal: {canal}",
-                xlabel="Tempo (s)" if "tempo" in df_grupo.columns else "Amostras",
-                ylabel="Amplitude Normalizada"
+            # --- Gerar Gráfico ---
+            fig, ax1 = plt.subplots(figsize=(10, 5))
+
+            cor_linha = 'green' if str(sensor).upper() == 'ACL' else 'black'
+            ax1.plot(tempo_plot, sinal_tratado, label=f"{sensor} Ch{idx_ch}", c=cor_linha, alpha=0.85, linewidth=1.2)
+
+            # Cálculo dinâmico dos limites do eixo Y
+            y_lim = max(abs(sinal_tratado.min()), abs(sinal_tratado.max())) * 1.2
+            y_lim = max(y_lim, 1.0)
+
+            # Aplicação da formatação personalizada
+            My_axis(
+                ax1,
+                font=12,
+                xlim=[0, len(sinal_tratado)],
+                ylim=[-y_lim, y_lim],
+                legbox=[0.98, 0.98, 1, 9],
+                setaxis=[
+                    f"Série Temporal - {sensor} | {condicao}\n",
+                    "Amostras",
+                    "Amplitude Normalizada"
+                ]
             )
 
-            # Salva o gráfico
-            nome_figura = f"{condicao}_{canal}_timeseries.png"
-            caminho_figura = pasta_sensor_fig / nome_figura
-            plt.savefig(caminho_figura, bbox_inches='tight')
+            # Salvamento no padrão
+            nome_figura = f"time_serie_ch{idx_ch}.png"
+            caminho_figura = pasta_figuras / nome_figura
+
+            plt.tight_layout()
+            plt.savefig(caminho_figura, dpi=150)
             plt.close(fig)
 
-            print(f"  └── 📈 Gráfico salvo: {caminho_figura.relative_to(raiz_path)}")
+            print(f"   └── 🖼️ Figura salva: Figuras/{sensor}/{condicao}/{nome_figura}")
 
-        df_processado_lista.append(df_grupo)
+        df_processado_lista.append(group_copy)
 
-    df_processado_final = pd.concat(df_processado_lista, ignore_index=True)
-    return df_processado_final
+    # Recompõe o DataFrame completo com os sinais tratados
+    df_final = pd.concat(df_processado_lista, ignore_index=True)
 
+    # 3. Exportação do arquivo esperado pela próxima etapa (03_fft.py)
+    output_file = raiz_path / "DadosTratados" / f"{nome_projeto}_preprocessamento.pkl"
+    df_final.to_pickle(output_file)
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="02_preprocessamento: Tratamento de sinais e geração de séries temporais."
-    )
-    parser.add_argument(
-        "--data_dir",
-        type=str,
-        required=True,
-        help="Caminho raiz selecionado no main",
-    )
-    args = parser.parse_args()
-
-    raiz_path = Path(args.data_dir)
-    pasta_dados = raiz_path / "DadosTratados"
-
-    # Busca o arquivo de leitura gerado na Etapa 01 (.pkl ou .parquet)
-    caminho_pkl = pasta_dados / "DadosTratados.pkl"
-    caminho_parquet = pasta_dados / "DadosTratados.parquet"
-
-    if caminho_pkl.exists():
-        print(f"📥 Lendo dados consolidados da etapa 01: {caminho_pkl.name}")
-        df_bruto = pd.read_pickle(caminho_pkl)
-    elif caminho_parquet.exists():
-        print(f"📥 Lendo dados consolidados da etapa 01: {caminho_parquet.name}")
-        df_bruto = pd.read_parquet(caminho_parquet)
-    else:
-        print(f"❌ Nenhum arquivo de entrada encontrado em: {pasta_dados.resolve()}")
-        print(" Certifique-se de que a etapa 01_leitura.py foi executada corretamente.")
-        exit(1)
-
-    try:
-        # Processa os sinais e gera as figuras
-        df_tratado = processar_e_gerar_figuras(df_bruto, raiz_path)
-
-        # Salva o dataset pré-processado na mesma pasta DadosTratados para uso no 03_fft.py
-        output_pkl = pasta_dados / "02_dados_preprocessados.pkl"
-        df_tratado.to_pickle(output_pkl)
-
-        print("\n" + "="*50)
-        print("✅ Pré-processamento concluído com sucesso!")
-        print(f"📁 Figuras salvas em: {(raiz_path / 'DadosTratados' / 'Figuras').resolve()}")
-        print(f"💾 Dados processados salvos em: {output_pkl.resolve()}")
-        print("="*50 + "\n")
-
-    except Exception as e:
-        print(f"\n❌ Erro na etapa 02_preprocessamento: {e}")
-        exit(1)
+    print("\n" + "=" * 65)
+    print(f"✅ Etapa 02 (Pré-processamento) Concluída com Sucesso!")
+    print(f"💾 Arquivo salvo para a próxima etapa: {output_file.resolve()}")
+    print("=" * 65 + "\n")
 
 
 if __name__ == "__main__":
