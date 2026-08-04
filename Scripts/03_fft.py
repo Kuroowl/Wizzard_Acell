@@ -88,7 +88,7 @@ def main():
 
     raiz_path = Path(args.data_dir)
 
-    input_dir = raiz_path / "DadosTratados" / "Preprocessamento"
+    input_dir = raiz_path / "DadosTratados" / "Etapas" / "Preprocessamento"
     grupos = listar_grupos(input_dir)
 
     if not grupos:
@@ -101,9 +101,10 @@ def main():
         print("⚡ Modo rápido (--quick): processando apenas o primeiro grupo.\n")
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
-    output_dir = raiz_path / "DadosTratados" / "FFT"
+    output_dir = raiz_path / "DadosTratados" / "Etapas" / "FFT"
 
     grupos_ok, grupos_com_erro = 0, 0
+    pastas_alteradas = {output_dir}
 
     print(f"⚙️ Calculando FFT para {len(grupos)} grupo(s) sensor/condição...")
 
@@ -136,8 +137,11 @@ def main():
             grupos_com_erro += 1
             continue
 
-        pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao) / "FFT"
+        # Padrão: Figuras/{sensor}/{condicao}/FFTs/ (mesmo nível que a pasta
+        # TimeSerie/ gerada na etapa 02).
+        pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao) / "FFTs"
         pasta_figuras.mkdir(parents=True, exist_ok=True)
+        pastas_alteradas.add(pasta_figuras)
 
         espectros_grupo = {}  # nome_canal -> (freqs, amplitude), para salvar tudo junto no final
         houve_erro_no_grupo = False
@@ -196,7 +200,7 @@ def main():
                 plt.savefig(caminho_figura, dpi=150)
                 plt.close(fig)
 
-                print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/FFT/{nome_figura}")
+                print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/FFTs/{nome_figura}")
 
         if espectros_grupo:
             # Salva todos os canais do grupo num único parquet: freq_hz + uma coluna de amplitude por canal
@@ -222,7 +226,7 @@ def main():
         "quick": args.quick,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
-    })
+    }, pastas_alteradas=pastas_alteradas)
 
     print("\n" + "=" * 65)
     print(f"✅ Etapa 03 (FFT) Concluída!")

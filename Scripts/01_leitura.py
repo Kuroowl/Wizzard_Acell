@@ -124,8 +124,9 @@ def main():
     raiz_path = Path(args.data_dir)
 
     # Saída passa a ser um DIRETÓRIO particionado por sensor/condicao,
-    # em vez de um único arquivo .pkl
-    output_dir = raiz_path / "DadosTratados" / "Leitura"
+    # em vez de um único arquivo .pkl. Agrupado em "Etapas/" junto com
+    # as saídas de parquet das demais etapas do pipeline.
+    output_dir = raiz_path / "DadosTratados" / "Etapas" / "Leitura"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -135,7 +136,7 @@ def main():
             "data_dir": raiz_path.resolve(),
             "quick": args.quick,
             "grupos_gerados": len(grupos),
-        })
+        }, pastas_alteradas=[output_dir])
 
         print("\n" + "=" * 60)
         print(f"✅ Etapa 01 (Leitura) Concluída!")

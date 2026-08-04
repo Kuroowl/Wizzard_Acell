@@ -22,3 +22,19 @@ Wizzard_Acell/
 ├── run_pipeline.py            # Script principal orquestrador
 ├── requirements.txt           # Dependências do projeto
 └── README.md
+
+DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
+│
+├── Etapas/                    # Todas as saídas .parquet, agrupadas por etapa
+│   ├── Leitura/{sensor}/{condicao}.parquet
+│   ├── Preprocessamento/{sensor}/{condicao}.parquet
+│   └── FFT/{sensor}/{condicao}.parquet
+│
+├── Figuras/                   # Figuras de análise, por sensor/condição
+│   └── {sensor}/{condicao}/
+│       ├── TimeSerie/         # gerada na etapa 02
+│       └── FFTs/              # gerada na etapa 03
+│
+└── Logs/
+    └── pipeline_log.txt       # log cumulativo (append), 1 entrada por execução:
+                                # timestamp, usuário, parâmetros e pastas alteradas

@@ -128,7 +128,7 @@ def main():
 
     raiz_path = Path(args.data_dir)
 
-    input_dir = raiz_path / "DadosTratados" / "Leitura"
+    input_dir = raiz_path / "DadosTratados" / "Etapas" / "Leitura"
     grupos = listar_grupos(input_dir)
 
     if not grupos:
@@ -141,10 +141,11 @@ def main():
         print("⚡ Modo rápido (--quick): processando apenas o primeiro grupo.\n")
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
-    output_dir = raiz_path / "DadosTratados" / "Preprocessamento"
+    output_dir = raiz_path / "DadosTratados" / "Etapas" / "Preprocessamento"
 
     colunas_metadados = ["sensor", "condicao", "ordem_ensaio", "arquivo_origem"]
     grupos_ok, grupos_com_erro = 0, 0
+    pastas_alteradas = {output_dir}
 
     print(f"⚙️ Processando {len(grupos)} grupo(s) sensor/condição...")
 
@@ -160,8 +161,12 @@ def main():
 
         colunas_sinal = [c for c in group_copy.columns if c not in colunas_metadados]
 
-        pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao)
+        # Padrão: Figuras/{sensor}/{condicao}/TimeSerie/ (mesmo nível que a
+        # pasta FFTs/ gerada na etapa 03, evitando misturar tudo direto em
+        # Figuras/{sensor}/{condicao}/).
+        pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao) / "TimeSerie"
         pasta_figuras.mkdir(parents=True, exist_ok=True)
+        pastas_alteradas.add(pasta_figuras)
 
         houve_erro_no_grupo = False
 
@@ -218,7 +223,7 @@ def main():
             plt.savefig(caminho_figura, dpi=150)
             plt.close(fig)
 
-            print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/{nome_figura}")
+            print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/TimeSerie/{nome_figura}")
 
         salvar_grupo(group_copy, sensor, condicao, output_dir)
         grupos_ok += 1
@@ -234,7 +239,7 @@ def main():
         "quick": args.quick,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
-    })
+    }, pastas_alteradas=pastas_alteradas)
 
     print("\n" + "=" * 65)
     print(f"✅ Etapa 02 (Pré-processamento) Concluída!")
