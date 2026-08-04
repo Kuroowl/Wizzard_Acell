@@ -15,10 +15,13 @@ PIPELINE_STEPS = [
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py"}
 
-# Scripts que hoje aceitam --fs (taxa de amostragem)
-STEPS_SUPORTAM_FS = {"02_preprocessamento.py"}
+# Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
+STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
+
+# Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py"}
 
 
 def selecionar_pasta_windows() -> str:
@@ -61,7 +64,7 @@ def resolver_indice_etapa(valor: str) -> int:
 
 
 def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float = None,
-             fs_acl: float = None, fs_pzt: float = None, cutoff: float = None) -> bool:
+             fs_acl: float = None, fs_pzt: float = None, f1: float = None, f2: float = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -81,10 +84,13 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--fs-acl", str(fs_acl)])
         if fs_pzt is not None:
             cmd.extend(["--fs-pzt", str(fs_pzt)])
-        if cutoff is not None:
-            cmd.extend(["--cutoff", str(cutoff)])
-    elif any(v is not None for v in (fs, fs_acl, fs_pzt, cutoff)):
-        print(f"   ℹ️ {script_name} ainda não implementa parâmetros de fs/cutoff; ignorando.")
+    elif any(v is not None for v in (fs, fs_acl, fs_pzt)):
+        print(f"   ℹ️ {script_name} ainda não implementa parâmetros de fs; ignorando.")
+    if script_name in STEPS_SUPORTAM_FAIXAS_FFT:
+        if f1 is not None:
+            cmd.extend(["--f1", str(f1)])
+        if f2 is not None:
+            cmd.extend(["--f2", str(f2)])
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -111,8 +117,10 @@ def main():
                          help="Taxa de amostragem (Hz) dos sensores ACL (padrão do script: 30000.0).")
     parser.add_argument("--fs-pzt", type=float, default=None,
                          help="Taxa de amostragem (Hz) dos sensores PZT (padrão do script: 12500.0).")
-    parser.add_argument("--cutoff", type=float, default=None,
-                         help="Frequência de corte (Hz) do filtro passa-baixa (padrão do script: 200.0).")
+    parser.add_argument("--f1", type=float, default=None,
+                         help="Limite entre faixa baixa e média da FFT, em Hz (padrão do script: 15.0).")
+    parser.add_argument("--f2", type=float, default=None,
+                         help="Limite entre faixa média e alta da FFT, em Hz (padrão do script: 400.0).")
     args = parser.parse_args()
 
     print("=== Wizzard Acell - Pipeline de Análise ===")
@@ -147,7 +155,7 @@ def main():
 
     for step in etapas_a_rodar:
         success = run_step(step, data_path, quick=args.quick, fs=args.fs,
-                            fs_acl=args.fs_acl, fs_pzt=args.fs_pzt, cutoff=args.cutoff)
+                            fs_acl=args.fs_acl, fs_pzt=args.fs_pzt, f1=args.f1, f2=args.f2)
         if not success:
             break
     else:

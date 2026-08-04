@@ -7,70 +7,29 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
-from matplotlib.ticker import AutoMinorLocator
 
 
-def _carregar_pipeline_io():
-    """Carrega src/pipeline_io.py diretamente pelo caminho do arquivo (ver 01_leitura.py)."""
-    caminho = Path(__file__).resolve().parent.parent / "src" / "pipeline_io.py"
-    spec = importlib.util.spec_from_file_location("pipeline_io", caminho)
+def _carregar_modulo(nome: str, arquivo: str):
+    """Carrega um módulo de src/ diretamente pelo caminho (ver explicação em 01_leitura.py)."""
+    caminho = Path(__file__).resolve().parent.parent / "src" / arquivo
+    spec = importlib.util.spec_from_file_location(nome, caminho)
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
     return modulo
 
 
-_pipeline_io = _carregar_pipeline_io()
+_pipeline_io = _carregar_modulo("pipeline_io", "pipeline_io.py")
 listar_grupos = _pipeline_io.listar_grupos
 carregar_grupo = _pipeline_io.carregar_grupo
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
 
-
-# ==============================================================================
-# 🎨 1. FUNÇÃO DE ESTILIZAÇÃO GRÁFICA (Padrão Científico)
-# ==============================================================================
-def My_axis(ax, font=14,
-            ticklengthmajor=10, ticklengthminor=5,
-            tickwidthmajor=2, tickwidthminor=1.5,
-            setaxis=['', '', ''], xlim=[0, 1], ylim=[-1, 1],
-            legbox=[0.98, 0.98, 1, 10], logx=False, logy=False):
-    ticksize = font
-
-    if logx:
-        ax.set_xscale("log")
-    else:
-        ax.xaxis.set_minor_locator(AutoMinorLocator(4))
-
-    if logy:
-        ax.set_yscale("log")
-    else:
-        ax.yaxis.set_minor_locator(AutoMinorLocator(4))
-
-    ax.tick_params(axis='both', which='major', labelsize=ticksize,
-                    width=tickwidthmajor, length=ticklengthmajor, direction='in', pad=8)
-    ax.tick_params(axis='both', which='minor',
-                    width=tickwidthminor, length=ticklengthminor, direction='in', pad=8)
-
-    ax.tick_params(axis='x', which='both', top=True, labeltop=False)
-    ax.tick_params(axis='y', which='both', right=True, labelright=False)
-
-    ax.set_title(setaxis[0], fontsize=font + 2)
-    ax.set_xlabel(setaxis[1], fontsize=font)
-    ax.set_ylabel(setaxis[2], fontsize=font)
-
-    ax.set_xlim(xlim[0], xlim[1])
-    ax.set_ylim(ylim[0], ylim[1])
-
-    handles, labels = ax.get_legend_handles_labels()
-    if labels:
-        ax.legend(loc='upper right', bbox_to_anchor=(legbox[0], legbox[1]),
-                  fancybox=True, shadow=True, ncol=legbox[2], fontsize=legbox[3])
-
-    return ax
+_estilo = _carregar_modulo("estilo_grafico", "estilo_grafico.py")
+My_axis = _estilo.My_axis
 
 
 # ==============================================================================
-# 🛠️ 2. MÓDULOS DE TRATAMENTO DO SINAL
+# 🛠️ 1. MÓDULOS DE TRATAMENTO DO SINAL
 # ==============================================================================
 def sanitizar_nome(nome: str) -> str:
     """Transforma um nome de coluna (ex.: 'Channel 0') em algo seguro para nome de arquivo."""
@@ -117,38 +76,24 @@ def remover_dc_offset(sinal: np.ndarray) -> np.ndarray:
     return signal.detrend(sinal, type='constant')
 
 
-def aplicar_filtro_passa_baixa(sinal: np.ndarray, fs: float = 1000.0, cutoff: float = 200.0, ordem: int = 4) -> np.ndarray:
-    """Aplica filtro Butterworth passa-baixa (zero-phase com filtfilt)."""
-    nyquist = 0.5 * fs
-    normal_cutoff = cutoff / nyquist
-    b, a = signal.butter(ordem, normal_cutoff, btype='low', analog=False)
-    return signal.filtfilt(b, a, sinal)
+def pipeline_preprocessamento(sinal: np.ndarray, nome_canal: str = "") -> np.ndarray | None:
+    """
+    Encadeamento de limpeza do sinal nesta etapa.
 
-
-def normalizar_sinal(sinal: np.ndarray, metodo: str = "zscore") -> np.ndarray:
-    """Normaliza a amplitude do sinal."""
-    if metodo == "zscore":
-        std = np.std(sinal)
-        return (sinal - np.mean(sinal)) / std if std != 0 else sinal
-    elif metodo == "max":
-        max_val = np.max(np.abs(sinal))
-        return sinal / max_val if max_val != 0 else sinal
-    return sinal
-
-
-def pipeline_preprocessamento(sinal: np.ndarray, fs: float = 1000.0, nome_canal: str = "") -> np.ndarray | None:
-    """Encadeamento sequencial das etapas de tratamento do sinal."""
+    Propositalmente SEM filtro de frequência e SEM normalização de
+    amplitude aqui: a filtragem por banda passa a ser responsabilidade
+    da etapa 03_fft (que pode olhar múltiplas faixas do mesmo sinal),
+    e normalizar (ex.: z-score) destruiria a amplitude física — que é
+    justamente o que se quer comparar entre ensaios/condições para
+    detectar eventos e ressonâncias.
+    """
     sinal_tratado = tratar_nans_e_infs(sinal, nome_canal=nome_canal)
     if sinal_tratado is None:
         return None
     sinal_tratado = remover_dc_offset(sinal_tratado)
-    sinal_tratado = aplicar_filtro_passa_baixa(sinal_tratado, fs=fs, cutoff=200.0)
-    sinal_tratado = normalizar_sinal(sinal_tratado, metodo="zscore")
 
-    # Guarda final: se o filtro/normalização reintroduziu algo inválido
-    # (ex.: canal instável no Butterworth), não deixa chegar no plot.
     if not np.all(np.isfinite(sinal_tratado)):
-        print(f"      ⚠️ Canal {nome_canal}: sinal ficou inválido (NaN/Inf) após filtragem, pulando.")
+        print(f"      ⚠️ Canal {nome_canal}: sinal ficou inválido (NaN/Inf) após limpeza, pulando.")
         return None
 
     return sinal_tratado
@@ -162,10 +107,24 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--quick", action="store_true",
                          help="Processa (e plota) apenas o primeiro grupo sensor/condicao, para teste rápido.")
-    parser.add_argument("--fs", type=float, default=1000.0,
-                         help="Taxa de amostragem real dos dados, em Hz. Usada no filtro e no eixo de tempo (padrão: 1000.0).")
+    parser.add_argument("--fs-acl", type=float, default=30000.0,
+                         help="Taxa de amostragem (Hz) dos sensores ACL (padrão: 30000.0).")
+    parser.add_argument("--fs-pzt", type=float, default=12500.0,
+                         help="Taxa de amostragem (Hz) dos sensores PZT (padrão: 12500.0).")
+    parser.add_argument("--fs", type=float, default=None,
+                         help="Taxa de amostragem (Hz) para qualquer sensor fora do mapeamento ACL/PZT (fallback).")
     args = parser.parse_args()
-    fs = args.fs
+
+    fs_por_sensor = {"ACL": args.fs_acl, "PZT": args.fs_pzt}
+
+    def obter_fs(sensor: str) -> float:
+        fs_sensor = fs_por_sensor.get(str(sensor).upper())
+        if fs_sensor is not None:
+            return fs_sensor
+        if args.fs is not None:
+            return args.fs
+        print(f"   ⚠️ Sensor '{sensor}' sem fs mapeado e sem --fs de fallback; usando 1000.0 Hz.")
+        return 1000.0
 
     raiz_path = Path(args.data_dir)
 
@@ -190,7 +149,8 @@ def main():
     print(f"⚙️ Processando {len(grupos)} grupo(s) sensor/condição...")
 
     for sensor, condicao, caminho_parquet in grupos:
-        print(f"\n📖 Grupo: [{sensor}] | [{condicao}]  ←  {caminho_parquet.name}")
+        fs = obter_fs(sensor)
+        print(f"\n📖 Grupo: [{sensor}] | [{condicao}]  ←  {caminho_parquet.name}  (fs={fs:.1f} Hz)")
         try:
             group_copy = carregar_grupo(caminho_parquet)
         except Exception as e:
@@ -218,7 +178,7 @@ def main():
             nome_canal_arquivo = sanitizar_nome(col_canal)
 
             try:
-                sinal_tratado = pipeline_preprocessamento(sinal_bruto, fs=fs, nome_canal=nome_canal_legivel)
+                sinal_tratado = pipeline_preprocessamento(sinal_bruto, nome_canal=nome_canal_legivel)
             except Exception as e:
                 print(f"      ⚠️ Erro ao processar canal {nome_canal_legivel}: {e}. Canal pulado.")
                 houve_erro_no_grupo = True
@@ -236,7 +196,7 @@ def main():
             ax1.plot(tempo_plot, sinal_tratado, label=f"{sensor} {nome_canal_legivel}", c=cor_linha, alpha=0.85, linewidth=1.2)
 
             y_lim = max(abs(sinal_tratado.min()), abs(sinal_tratado.max())) * 1.2
-            y_lim = max(y_lim, 1.0)
+            y_lim = max(y_lim, 1e-9)  # evita limite zero em sinal completamente plano
 
             My_axis(
                 ax1,
@@ -247,7 +207,7 @@ def main():
                 setaxis=[
                     f"Time Series - {sensor} | {condicao} | {nome_canal_legivel}\n",
                     "Time (s)",
-                    "Normalized Amplitude"
+                    "Amplitude"
                 ]
             )
 
@@ -267,10 +227,10 @@ def main():
 
     caminho_log = registrar_log(raiz_path, "02_preprocessamento", {
         "data_dir": raiz_path.resolve(),
-        "fs_hz": fs,
-        "filtro_lowpass_cutoff_hz": 200.0,
-        "filtro_lowpass_ordem": 4,
-        "normalizacao": "zscore",
+        "fs_acl_hz": args.fs_acl,
+        "fs_pzt_hz": args.fs_pzt,
+        "fs_fallback_hz": args.fs,
+        "tratamento": "remocao_dc_offset + interpolacao_nan_inf (sem filtro de frequencia, sem normalizacao)",
         "quick": args.quick,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
