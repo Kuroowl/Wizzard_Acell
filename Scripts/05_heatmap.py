@@ -27,6 +27,9 @@ registrar_log = _pipeline_io.registrar_log
 _estilo = _carregar_modulo("estilo_grafico", "estilo_grafico.py")
 My_axis = _estilo.My_axis
 
+# Mesmas cores vivas da etapa 04, fora do esquema de cor do heatmap (viridis/inferno/etc.)
+COR_PICOS = {"low": "#2979FF", "mid": "#00C853", "high": "#FF1744"}
+
 
 def sanitizar_nome(nome: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in str(nome)).strip("_") or "canal"
@@ -306,7 +309,8 @@ def main():
 
             # --- overlay dos picos (Etapas/Picos), se disponível ---
             if not args.sem_picos:
-                freqs_overlay, y_overlay = [], []
+                overlay_por_faixa = {"low": ([], []), "mid": ([], []), "high": ([], [])}
+                algum_pico_encontrado = False
                 for condicao, y_valor in zip(condicoes_com_dado, valores_y_canal):
                     caminho_picos = pasta_picos_raiz / str(sensor) / f"{condicao}.parquet"
                     if not caminho_picos.exists():
@@ -315,15 +319,22 @@ def main():
                         df_picos = pd.read_parquet(caminho_picos)
                     except Exception:
                         continue
-                    mascara = (df_picos["canal"] == canal) & (df_picos["escopo"].isin(["low", "mid", "high"]))
-                    for f_p in df_picos.loc[mascara, "freq_hz"]:
-                        freqs_overlay.append(f_p)
-                        y_overlay.append(y_valor)
+                    mascara_canal = df_picos["canal"] == canal
+                    for rotulo_faixa in ("low", "mid", "high"):
+                        mascara = mascara_canal & (df_picos["escopo"] == rotulo_faixa)
+                        for f_p in df_picos.loc[mascara, "freq_hz"]:
+                            overlay_por_faixa[rotulo_faixa][0].append(f_p)
+                            overlay_por_faixa[rotulo_faixa][1].append(y_valor)
+                            algum_pico_encontrado = True
 
-                if freqs_overlay:
-                    ax.scatter(freqs_overlay, y_overlay, facecolors="none", edgecolors="red",
-                               marker="o", s=40, linewidths=1.2, alpha=0.85, zorder=5,
-                               label="Peaks (low/mid/high)")
+                if algum_pico_encontrado:
+                    for rotulo_faixa, (freqs_overlay, y_overlay) in overlay_por_faixa.items():
+                        if not freqs_overlay:
+                            continue
+                        ax.scatter(freqs_overlay, y_overlay, facecolors="none",
+                                   edgecolors=COR_PICOS[rotulo_faixa],
+                                   marker="o", s=40, linewidths=1.2, alpha=0.9, zorder=5,
+                                   label=f"Peaks ({rotulo_faixa})")
                 else:
                     print(f"      ℹ️ Canal {canal}: nenhum pico encontrado em Etapas/Picos para sobrepor "
                           f"(rode a etapa 04 antes, se quiser essa camada).")

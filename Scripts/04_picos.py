@@ -27,6 +27,11 @@ _estilo = _carregar_modulo("estilo_grafico", "estilo_grafico.py")
 My_axis = _estilo.My_axis
 
 
+# Cores vivas por faixa, escolhidas pra ficar fora do esquema de cor do
+# heatmap (viridis) e serem consistentes entre a etapa 04 e o overlay da 05.
+COR_PICOS = {"low": "#2979FF", "mid": "#00C853", "high": "#FF1744"}
+
+
 # ==============================================================================
 # 🛠️ 1. MÉTODO DE IDENTIFICAÇÃO DOS PICOS
 # ==============================================================================
@@ -224,7 +229,7 @@ def main():
                 if freqs_pico.size > 0:
                     ax1.scatter(
                         freqs_pico, amp_pico,
-                        facecolors='none', edgecolors='red', marker='o', s=90,
+                        facecolors='none', edgecolors=COR_PICOS[rotulo], marker='o', s=90,
                         linewidths=1.8, zorder=5, label=f"Peaks (N={args.n_picos})"
                     )
 

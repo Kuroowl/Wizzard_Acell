@@ -38,6 +38,16 @@ def sanitizar_nome(nome: str) -> str:
     return nome.strip("_") or "canal"
 
 
+def eh_coluna_tempo(nome_coluna) -> bool:
+    """
+    Identifica colunas de tempo (ex.: 'Time (s)', 'Tempo', 'T (s)', 'Time')
+    para excluí-las da lista de canais de sinal — são só o eixo temporal do
+    próprio CSV, não faz sentido gerar série temporal/FFT/heatmap "do tempo".
+    """
+    nome = str(nome_coluna).strip().lower()
+    return bool(re.match(r"^(time|tempo|t)(\s*\(.*\))?$", nome))
+
+
 def tratar_nans_e_infs(sinal: np.ndarray, nome_canal: str = "") -> np.ndarray | None:
     """
     Trata NaNs E Infs por interpolação linear antes de qualquer filtragem
@@ -159,7 +169,7 @@ def main():
             grupos_com_erro += 1
             continue
 
-        colunas_sinal = [c for c in group_copy.columns if c not in colunas_metadados]
+        colunas_sinal = [c for c in group_copy.columns if c not in colunas_metadados and not eh_coluna_tempo(c)]
 
         # Padrão: Figuras/{sensor}/{condicao}/TimeSerie/ (mesmo nível que a
         # pasta FFTs/ gerada na etapa 03, evitando misturar tudo direto em
