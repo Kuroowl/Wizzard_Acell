@@ -30,6 +30,47 @@ My_axis = _estilo.My_axis
 # Mesmas cores vivas da etapa 04, fora do esquema de cor do heatmap (viridis/inferno/etc.)
 COR_PICOS = {"low": "#2979FF", "mid": "#00C853", "high": "#FF1744"}
 
+# Texto explicativo por modo de --escala, registrado no log (mesmo espírito
+# do METODO_ESPECTRAL da etapa 03: método + funções + parâmetros usados).
+METODO_ESCALA_DESCRICAO = {
+    "db-global": (
+        "Amplitude (dB) = 20*log10(|A| / A_max_global + eps), onde A_max_global "
+        "é a maior amplitude absoluta entre TODAS as condições daquela faixa "
+        "(np.max sobre a matriz inteira). Só a condição com o pico global bate "
+        "0 dB; as demais ficam abaixo, preservando a intensidade ABSOLUTA "
+        "relativa entre condições. Piso do gráfico: --db-min."
+    ),
+    "abs-global": (
+        "Sem normalizar: dados plotados na unidade original (saída da etapa "
+        "03/FFT), com uma única referência de cor pra toda a figura: "
+        "vmax = maior amplitude absoluta entre TODAS as condições daquela "
+        "faixa (np.max)."
+    ),
+    "abs-condicao": (
+        "Cada condição (linha do mapa) dividida pelo próprio pico absoluto: "
+        "A / max(|A|) por linha (np.max(axis=1)). Mesmo cálculo do "
+        "'pico-canal', lido aqui como 'escala absoluta com referência própria "
+        "por condição' (única forma de dar a cada linha seu próprio teto de "
+        "cor dentro de uma imagem só)."
+    ),
+    "pico-canal": (
+        "Normalização relativa: cada condição dividida pelo próprio pico "
+        "absoluto (np.max(axis=1) por linha), resultando em valores de 0 a 1 "
+        "(sem unidade física)."
+    ),
+    "rms-canal": (
+        "Cada condição dividida pelo próprio RMS: A / sqrt(mean(A**2)) por "
+        "linha (np.sqrt, np.mean(axis=1)), realçando o sinal acima do nível "
+        "médio de energia daquela condição."
+    ),
+    "db": (
+        "Amplitude (dB) = 20*log10(|A| / max(|A|) + eps), com max(|A|) "
+        "calculado POR LINHA (por condição, não global) — todas as condições "
+        "batem 0 dB no próprio pico; não preserva intensidade absoluta entre "
+        "condições (ver 'db-global' para isso). Piso do gráfico: --db-min."
+    ),
+}
+
 
 def _bordas_a_partir_de_centros(centros) -> np.ndarray:
     """
@@ -219,13 +260,24 @@ def main():
         exit(1)
 
     metadados = {}
+    caminho_metadados_condicoes = None
     if args.metadados_condicoes:
-        caminho_csv = Path(args.metadados_condicoes)
+        caminho_metadados_condicoes = Path(args.metadados_condicoes)
+    else:
+        # Busca automática: se não foi passado --metadados-condicoes, procura
+        # um "condicoes.csv" direto na pasta base (--data_dir). Evita ter que
+        # digitar o caminho toda vez se o arquivo já mora ao lado dos dados.
+        candidato = raiz_path / "condicoes.csv"
+        if candidato.exists():
+            caminho_metadados_condicoes = candidato
+            print(f"📋 Encontrado condicoes.csv na pasta base, usando automaticamente: {candidato.resolve()}")
+
+    if caminho_metadados_condicoes:
         try:
-            metadados = ler_metadados_condicoes(caminho_csv)
-            print(f"📋 Metadados de condição carregados: {caminho_csv.resolve()} ({len(metadados)} condição(ões))")
+            metadados = ler_metadados_condicoes(caminho_metadados_condicoes)
+            print(f"📋 Metadados de condição carregados: {caminho_metadados_condicoes.resolve()} ({len(metadados)} condição(ões))")
         except Exception as e:
-            print(f"⚠️ Não foi possível ler --metadados-condicoes ({e}). Seguindo sem metadados.")
+            print(f"⚠️ Não foi possível ler {caminho_metadados_condicoes} ({e}). Seguindo sem metadados.")
             metadados = {}
 
     # Agrupa por sensor, preservando a ordem de aparição das condições
@@ -422,8 +474,9 @@ def main():
 
     caminho_log = registrar_log(raiz_path, "05_heatmap", {
         "data_dir": raiz_path.resolve(),
-        "metadados_condicoes": str(Path(args.metadados_condicoes).resolve()) if args.metadados_condicoes else None,
+        "metadados_condicoes": str(caminho_metadados_condicoes.resolve()) if caminho_metadados_condicoes else None,
         "escala": args.escala,
+        "metodo_escala": METODO_ESCALA_DESCRICAO.get(args.escala, ""),
         "db_min": args.db_min if args.escala in ("db", "db-global") else None,
         "cmap": args.cmap,
         "freq_max": args.freq_max,

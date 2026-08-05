@@ -30,6 +30,47 @@ My_axis = _estilo.My_axis
 # Mesmas cores vivas das etapas 04/05
 COR_PICOS = {"low": "#2979FF", "mid": "#00C853", "high": "#FF1744"}
 
+# Texto explicativo por modo de --escala, registrado no log (mesmo espírito
+# do METODO_ESPECTRAL da etapa 03). Aqui cada "linha" do mapa é um
+# sensor/canal, não uma condição de ensaio.
+METODO_ESCALA_DESCRICAO = {
+    "db-global": (
+        "Amplitude (dB) = 20*log10(|A| / A_max_global + eps), onde A_max_global "
+        "é a maior amplitude absoluta entre TODOS os sensores/canais daquela "
+        "faixa (np.max sobre a matriz inteira). Só o sensor com o pico global "
+        "bate 0 dB; os demais ficam abaixo, preservando a intensidade "
+        "ABSOLUTA relativa entre sensores. Piso do gráfico: --db-min."
+    ),
+    "abs-global": (
+        "Sem normalizar: dados plotados na unidade original (saída da etapa "
+        "03/FFT), com uma única referência de cor pra toda a figura: "
+        "vmax = maior amplitude absoluta entre TODOS os sensores/canais "
+        "daquela faixa (np.max)."
+    ),
+    "abs-condicao": (
+        "Cada sensor/canal (linha do mapa) dividido pelo próprio pico "
+        "absoluto: A / max(|A|) por linha (np.max(axis=1)). Mesmo cálculo do "
+        "'pico-canal', lido aqui como 'escala absoluta com referência própria "
+        "por sensor'."
+    ),
+    "pico-canal": (
+        "Normalização relativa: cada sensor/canal dividido pelo próprio pico "
+        "absoluto (np.max(axis=1) por linha), resultando em valores de 0 a 1 "
+        "(sem unidade física)."
+    ),
+    "rms-canal": (
+        "Cada sensor/canal dividido pelo próprio RMS: A / sqrt(mean(A**2)) "
+        "por linha (np.sqrt, np.mean(axis=1)), realçando o sinal acima do "
+        "nível médio de energia daquele sensor."
+    ),
+    "db": (
+        "Amplitude (dB) = 20*log10(|A| / max(|A|) + eps), com max(|A|) "
+        "calculado POR LINHA (por sensor, não global) — todos os sensores "
+        "batem 0 dB no próprio pico; não preserva intensidade absoluta entre "
+        "sensores (ver 'db-global' para isso). Piso do gráfico: --db-min."
+    ),
+}
+
 
 def _bordas_a_partir_de_centros(centros) -> np.ndarray:
     """
@@ -141,13 +182,24 @@ def main():
         print("⚡ Modo rápido (--quick): processando apenas o primeiro grupo (sensor, condição).\n")
 
     metadados_canais = {}
+    caminho_metadados_canais = None
     if args.metadados_canais:
-        caminho_csv = Path(args.metadados_canais)
+        caminho_metadados_canais = Path(args.metadados_canais)
+    else:
+        # Busca automática: se não foi passado --metadados-canais, procura um
+        # "canais.csv" direto na pasta base (--data_dir).
+        candidato = raiz_path / "canais.csv"
+        if candidato.exists():
+            caminho_metadados_canais = candidato
+            print(f"📋 Encontrado canais.csv na pasta base, usando automaticamente: {candidato.resolve()}")
+
+    if caminho_metadados_canais:
         try:
-            metadados_canais = ler_metadados_canais(caminho_csv)
-            print(f"📋 Metadados de canal carregados: {caminho_csv.resolve()} ({len(metadados_canais)} canal(is))")
+            metadados_canais = ler_metadados_canais(caminho_metadados_canais)
+            print(f"📋 Metadados de canal carregados: {caminho_metadados_canais.resolve()} ({len(metadados_canais)} canal(is))")
         except Exception as e:
-            print(f"⚠️ Não foi possível ler --metadados-canais ({e}). Seguindo sem metadados.")
+            print(f"⚠️ Não foi possível ler {caminho_metadados_canais} ({e}). Seguindo sem metadados.")
+            metadados_canais = {}
             metadados_canais = {}
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
@@ -347,8 +399,9 @@ def main():
 
     caminho_log = registrar_log(raiz_path, "06_mapa_espacial", {
         "data_dir": raiz_path.resolve(),
-        "metadados_canais": str(Path(args.metadados_canais).resolve()) if args.metadados_canais else None,
+        "metadados_canais": str(caminho_metadados_canais.resolve()) if caminho_metadados_canais else None,
         "escala": args.escala,
+        "metodo_escala": METODO_ESCALA_DESCRICAO.get(args.escala, ""),
         "db_min": args.db_min if args.escala in ("db", "db-global") else None,
         "cmap": args.cmap,
         "freq_max": args.freq_max,

@@ -88,14 +88,16 @@ frequência real do inversor e as razões de redução do equipamento em cada
 condição, que não fazem sentido genérico pra um sensor qualquer distribuído
 na tubulação.
 
-**Metadados por condição (opcional)** — `--metadados-condicoes caminho.csv`:
-quando informado, o eixo Y passa a ser a frequência real do inversor
-(contínuo, em Hz) em vez do rótulo categórico, e — se as colunas de redução
-também estiverem preenchidas — as linhas teóricas voltam a ser desenhadas
-sobre o mapa. Essa decisão (contínuo vs. categórico) é tomada **por
-sensor**: se faltar `f_vfd_hz` de qualquer condição daquele sensor, o
-sensor inteiro cai no eixo categórico (evita misturar as duas escalas no
-mesmo gráfico) e um aviso lista quais condições ficaram sem o dado.
+**Metadados por condição (opcional)** — `--metadados-condicoes caminho.csv`
+(ou, se omitido, um arquivo `condicoes.csv` direto na raiz de `--data_dir`
+é usado automaticamente, se existir): quando informado, o eixo Y passa a
+ser a frequência real do inversor (contínuo, em Hz) em vez do rótulo
+categórico, e — se as colunas de redução também estiverem preenchidas —
+as linhas teóricas voltam a ser desenhadas sobre o mapa. Essa decisão
+(contínuo vs. categórico) é tomada **por sensor**: se faltar `f_vfd_hz` de
+qualquer condição daquele sensor, o sensor inteiro cai no eixo categórico
+(evita misturar as duas escalas no mesmo gráfico) e um aviso lista quais
+condições ficaram sem o dado.
 
 Formato esperado do CSV (cabeçalho obrigatório, 1 linha por condição):
 
@@ -132,6 +134,11 @@ uma faixa muito mais forte não afogar visualmente as outras duas:
 | `pico-canal`       | Normalização relativa: cada condição dividida pelo próprio pico (0 a 1, sem unidade). |
 | `rms-canal`        | Cada condição dividida pelo próprio RMS (realça sinal acima do "nível médio de ruído" daquela condição). |
 | `db`               | Amplitude em dB relativa ao pico de CADA condição (todas batem 0 dB no próprio pico — não preserva intensidade absoluta entre condições, ao contrário do `db-global`); piso via `--db-min`. |
+
+O texto da linha escolhida na tabela acima (fórmula, funções do numpy,
+parâmetros) é registrado no log a cada execução (`metodo_escala`), mesmo
+espírito do `metodo_espectral` da etapa 03 — dá pra saber exatamente como
+uma figura antiga foi gerada sem precisar adivinhar pelo nome curto da opção.
 
 **Outros parâmetros**: `--cmap` (colormap do matplotlib), `--freq-max`
 (teto da faixa `high`; padrão automático), `--freq-resolucao` (grid comum
@@ -174,12 +181,14 @@ o que não é o caso quando o eixo Y é posição física.
 **Eixo Y por padrão**: nome cru do canal (`Channel 0`, `Channel 1`...),
 ordenado numericamente.
 
-**Metadados por canal (opcional)** — `--metadados-canais caminho.csv`:
-quando informado E completo para todos os canais daquele tipo de sensor, o
-eixo Y passa a ser a posição física real (metros, ao longo da tubulação),
-com rótulos descritivos no lugar do nome cru do canal. Mesma lógica "tudo
-ou nada por tipo de sensor" da etapa 05: se faltar `posicao_m` de qualquer
-canal daquele tipo, cai pro eixo categórico com aviso.
+**Metadados por canal (opcional)** — `--metadados-canais caminho.csv`
+(ou, se omitido, um arquivo `canais.csv` direto na raiz de `--data_dir` é
+usado automaticamente, se existir): quando informado E completo para
+todos os canais daquele tipo de sensor, o eixo Y passa a ser a posição
+física real (metros, ao longo da tubulação), com rótulos descritivos no
+lugar do nome cru do canal. Mesma lógica "tudo ou nada por tipo de sensor"
+da etapa 05: se faltar `posicao_m` de qualquer canal daquele tipo, cai pro
+eixo categórico com aviso.
 
 Formato esperado do CSV (cabeçalho obrigatório, 1 linha por canal):
 
