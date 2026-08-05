@@ -29,13 +29,16 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 │   ├── Preprocessamento/{sensor}/{condicao}.parquet
 │   ├── FFT/{sensor}/{condicao}.parquet             # freq_hz + amplitude por canal
 │   ├── Picos/{sensor}/{condicao}.parquet           # canal, escopo (low/mid/high/global), ordem_pico, freq_hz, amplitude
-│   └── Heatmap/{sensor}.parquet                    # planejado (etapa 05): matriz condicao x freq_hz consolidada
+│   └── Heatmap/{sensor}/{canal}.parquet            # condicao, freq_hz, amplitude, y_valor (RAW, não escalado)
 │
-├── Figuras/                   # Figuras de análise, por sensor/condição
-│   └── {sensor}/{condicao}/
-│       ├── TimeSerie/         # gerada na etapa 02
-│       ├── FFTs/              # etapa 03, OPCIONAL (--salvar-figuras, desligado por padrão)
-│       └── Picos/             # etapa 04 — mesmo gráfico da FFT + marcador vermelho nos picos
+├── Figuras/                   # Figuras de análise
+│   └── {sensor}/
+│       ├── {condicao}/
+│       │   ├── TimeSerie/     # etapa 02
+│       │   ├── FFTs/          # etapa 03, OPCIONAL (--salvar-figuras, desligado por padrão)
+│       │   └── Picos/         # etapa 04 — mesmo gráfico da FFT + marcador vermelho nos picos
+│       └── Heatmap/           # etapa 05 — 1 figura por canal, consolidando TODAS as condições
+│                               # (por isso fica em {sensor}/Heatmap/, não dentro de {condicao}/)
 │
 └── Logs/
     └── pipeline_log.txt       # log cumulativo (append), 1 entrada por execução:
@@ -44,12 +47,17 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 
 ---
 
-## 🗺️ Etapa 05 (planejada) — Mapa espectral por condição
+## 🗺️ Etapa 05 — Mapa espectral por condição
 
-Gera, por sensor, um heatmap com eixo X = frequência (Hz), eixo Y = condição
-de ensaio (T1...Tn), cor = amplitude — consolidando as saídas de
-`Etapas/FFT` e `Etapas/Picos` de todas as condições num único gráfico por
-sensor.
+Gera, por sensor e por canal, um heatmap com eixo X = frequência (Hz), eixo
+Y = condição de ensaio (T1...Tn), cor = amplitude — consolidando o espectro
+completo (`Etapas/FFT`) de todas as condições daquele sensor num único
+gráfico, com os picos (`Etapas/Picos`, escopos `low`/`mid`/`high`)
+sobrepostos como marcadores vermelhos (desligável com `--sem-picos`).
+
+Precisa de pelo menos 2 condições por sensor/canal (heatmap de 1 linha só
+não faz sentido); condições/canais sem dado suficiente são pulados com
+aviso, sem interromper o restante.
 
 **Eixo Y por padrão**: rótulo categórico da própria condição (`T1`, `T2`,
 ..., `Tn`), na ordem em que aparecem — sem exigir nenhuma informação além do
@@ -63,7 +71,10 @@ na tubulação.
 quando informado, o eixo Y passa a ser a frequência real do inversor
 (contínuo, em Hz) em vez do rótulo categórico, e — se as colunas de redução
 também estiverem preenchidas — as linhas teóricas voltam a ser desenhadas
-sobre o mapa.
+sobre o mapa. Essa decisão (contínuo vs. categórico) é tomada **por
+sensor**: se faltar `f_vfd_hz` de qualquer condição daquele sensor, o
+sensor inteiro cai no eixo categórico (evita misturar as duas escalas no
+mesmo gráfico) e um aviso lista quais condições ficaram sem o dado.
 
 Formato esperado do CSV (cabeçalho obrigatório, 1 linha por condição):
 
@@ -86,4 +97,11 @@ T3,24.0,3.0,4.28,9.55
 
 Linhas de condições ausentes do CSV (ou CSV ausente) simplesmente caem no
 comportamento padrão (eixo categórico, sem linhas teóricas) para aquela
-condição — a etapa não falha por metadado incompleto.
+sensor — a etapa não falha por metadado incompleto.
+
+**Outros parâmetros**: `--escala {norm,db,raw}` (padrão `norm`, normaliza
+cada condição pelo próprio pico — `db` usa `--db-min` como piso, padrão
+-40 dB), `--cmap` (colormap do matplotlib), `--freq-max`/`--freq-resolucao`
+(grid comum de frequência usado para interpolar as condições, já que cada
+uma pode ter resolução espectral diferente), `--f1`/`--f2` (só para as
+linhas verticais pontilhadas que demarcam low/mid/high no gráfico).

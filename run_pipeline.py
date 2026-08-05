@@ -15,13 +15,13 @@ PIPELINE_STEPS = [
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py"}
 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
-STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py"}
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py"}
 
 # Script que aceita --salvar-figuras (por padrão a etapa 03 não gera mais
 # figuras de FFT, já que a 04 gera o mesmo gráfico com os picos marcados)
@@ -29,6 +29,9 @@ STEPS_SUPORTAM_FIGURAS_OPCIONAIS = {"03_fft.py"}
 
 # Script que aceita os parâmetros de identificação de picos
 STEPS_SUPORTAM_PICOS = {"04_picos.py"}
+
+# Script que aceita os parâmetros do mapa espectral por condição
+STEPS_SUPORTAM_HEATMAP = {"05_heatmap.py"}
 
 
 def selecionar_pasta_windows() -> str:
@@ -73,7 +76,8 @@ def resolver_indice_etapa(valor: str) -> int:
 def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float = None,
              fs_acl: float = None, fs_pzt: float = None, f1: float = None, f2: float = None,
              salvar_figuras: bool = False, n_picos: int = None,
-             min_dist_acl: float = None, min_dist_pzt: float = None, min_dist: float = None) -> bool:
+             min_dist_acl: float = None, min_dist_pzt: float = None, min_dist: float = None,
+             metadados_condicoes: str = None, escala_heatmap: str = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -111,6 +115,11 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--min-dist-pzt", str(min_dist_pzt)])
         if min_dist is not None:
             cmd.extend(["--min-dist", str(min_dist)])
+    if script_name in STEPS_SUPORTAM_HEATMAP:
+        if metadados_condicoes is not None:
+            cmd.extend(["--metadados-condicoes", metadados_condicoes])
+        if escala_heatmap is not None:
+            cmd.extend(["--escala", escala_heatmap])
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -152,6 +161,11 @@ def main():
                          help="Distância mínima (Hz) entre picos para sensores PZT (padrão do script: 5.0).")
     parser.add_argument("--min-dist", type=float, default=None,
                          help="Distância mínima (Hz) de fallback entre picos para outros sensores (padrão do script: 2.0).")
+    parser.add_argument("--metadados-condicoes", type=str, default=None,
+                         help="CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,reducao_cavidade) "
+                              "para a etapa 05 usar eixo Y contínuo + linhas teóricas no heatmap.")
+    parser.add_argument("--escala-heatmap", type=str, default=None, choices=["norm", "db", "raw"],
+                         help="Escala de cor do heatmap da etapa 05 (padrão do script: norm).")
     args = parser.parse_args()
 
     print("=== Wizzard Acell - Pipeline de Análise ===")
@@ -189,7 +203,8 @@ def main():
                             fs_acl=args.fs_acl, fs_pzt=args.fs_pzt, f1=args.f1, f2=args.f2,
                             salvar_figuras=args.salvar_figuras_fft, n_picos=args.n_picos,
                             min_dist_acl=args.min_dist_acl, min_dist_pzt=args.min_dist_pzt,
-                            min_dist=args.min_dist)
+                            min_dist=args.min_dist, metadados_condicoes=args.metadados_condicoes,
+                            escala_heatmap=args.escala_heatmap)
         if not success:
             break
     else:
