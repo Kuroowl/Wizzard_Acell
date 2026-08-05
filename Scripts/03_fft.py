@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.signal import welch
 
 
 def _carregar_modulo(nome: str, arquivo: str):
@@ -27,32 +28,38 @@ My_axis = _estilo.My_axis
 
 
 # ==============================================================================
-# 🛠️ 1. CÁLCULO DA FFT
+# 🛠️ 1. CÁLCULO DA FFT — scipy.signal.welch (recomendação da gerência)
 # ==============================================================================
-def calcular_fft(sinal: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
+METODO_ESPECTRAL = (
+    "scipy.signal.welch (método de Welch: divide o sinal em segmentos "
+    "sobrepostos, aplica janela em cada um, calcula a FFT de cada segmento "
+    "e faz a média — reduz a variância do espectro em relação a uma FFT "
+    "única sobre o sinal inteiro)."
+)
+
+
+def calcular_fft(sinal: np.ndarray, fs: float, nperseg: int, noverlap: int, janela: str) -> tuple[np.ndarray, np.ndarray]:
     """
     Calcula o espectro de amplitude de banda completa (0 até Nyquist = fs/2)
-    de UMA VEZ, com janela de Hann para reduzir vazamento espectral.
+    via scipy.signal.welch, com scaling='spectrum' (Welch retorna a média do
+    quadrado por segmento; aqui tiramos a raiz para voltar à mesma unidade de
+    amplitude usada no resto do pipeline — picos, heatmap etc.).
 
-    Os recortes por faixa (baixa/média/alta) são feitos DEPOIS, apenas
-    fatiando o resultado — não se filtra o sinal no tempo nem se recalcula
-    a FFT por faixa, então nenhum evento na borda de uma faixa é perdido.
+    Os recortes por faixa (low/mid/high) são feitos DEPOIS, apenas fatiando o
+    resultado — não se filtra o sinal no tempo nem se recalcula o Welch por
+    faixa, então nenhum evento na borda de uma faixa é perdido.
     """
-    n = len(sinal)
     sinal = sinal - np.mean(sinal)  # garante média zero (defensivo; já vem tratado da etapa 02)
 
-    janela = np.hanning(n)
-    sinal_janelado = sinal * janela
+    nperseg_efetivo = min(nperseg, len(sinal))
+    noverlap_efetivo = min(noverlap, nperseg_efetivo - 1) if nperseg_efetivo > 1 else 0
 
-    espectro = np.fft.rfft(sinal_janelado)
-    freqs = np.fft.rfftfreq(n, d=1.0 / fs)
-
-    # Correção de amplitude pela janela (espectro de amplitude, unilateral)
-    soma_janela = np.sum(janela)
-    amplitude = np.abs(espectro) * 2.0 / soma_janela if soma_janela != 0 else np.abs(espectro)
-    amplitude[0] = amplitude[0] / 2.0  # componente DC não deve ser dobrada
-
-    return freqs, amplitude
+    freqs, pxx = welch(
+        sinal, fs=fs, window=janela, nperseg=nperseg_efetivo, noverlap=noverlap_efetivo,
+        scaling="spectrum", detrend="constant", return_onesided=True,
+    )
+    amplitude = np.sqrt(np.maximum(pxx, 0.0))
+    return freqs, amplitude, nperseg_efetivo, noverlap_efetivo
 
 
 # ==============================================================================
@@ -70,9 +77,17 @@ def main():
     parser.add_argument("--fs", type=float, default=None,
                          help="Taxa de amostragem (Hz) de fallback para sensores fora do mapeamento ACL/PZT.")
     parser.add_argument("--f1", type=float, default=15.0,
-                         help="Limite entre a faixa BAIXA e MÉDIA, em Hz (padrão: 15.0).")
+                         help="Limite entre a faixa LOW e MID, em Hz (padrão: 15.0).")
     parser.add_argument("--f2", type=float, default=400.0,
-                         help="Limite entre a faixa MÉDIA e ALTA, em Hz (padrão: 400.0).")
+                         help="Limite entre a faixa MID e HIGH, em Hz (padrão: 400.0).")
+    parser.add_argument("--nperseg", type=int, default=8192,
+                         help="Tamanho do segmento (nperseg) do scipy.signal.welch, em amostras (padrão: 8192). "
+                              "Se o sinal for menor, usa o tamanho do sinal inteiro (sem erro).")
+    parser.add_argument("--noverlap", type=int, default=None,
+                         help="Sobreposição entre segmentos (noverlap) do welch, em amostras "
+                              "(padrão: metade do nperseg efetivo, ou seja, 50%%).")
+    parser.add_argument("--janela", type=str, default="hann",
+                         help="Janela usada pelo welch (qualquer nome aceito por scipy.signal.get_window; padrão: hann).")
     parser.add_argument("--salvar-figuras", action="store_true",
                          help="Gera as figuras de FFT por faixa (Figuras/{sensor}/{condicao}/FFTs/). "
                               "Desligado por padrão: a etapa 04 (picos) já gera o mesmo gráfico "
@@ -109,8 +124,11 @@ def main():
 
     grupos_ok, grupos_com_erro = 0, 0
     pastas_alteradas = {output_dir}
+    noverlap_configurado = args.noverlap if args.noverlap is not None else args.nperseg // 2
 
-    print(f"⚙️ Calculando FFT para {len(grupos)} grupo(s) sensor/condição...")
+    print(f"⚙️ Calculando FFT (Welch) para {len(grupos)} grupo(s) sensor/condição...")
+    print(f"   Método: {METODO_ESPECTRAL}")
+    print(f"   janela={args.janela} | nperseg={args.nperseg} | noverlap={noverlap_configurado}\n")
 
     for sensor, condicao, caminho_parquet in grupos:
         fs = obter_fs(sensor)
@@ -168,7 +186,9 @@ def main():
                 continue
 
             try:
-                freqs, amplitude = calcular_fft(sinal, fs=fs)
+                freqs, amplitude, nperseg_efetivo, noverlap_efetivo = calcular_fft(
+                    sinal, fs=fs, nperseg=args.nperseg, noverlap=noverlap_configurado, janela=args.janela
+                )
             except Exception as e:
                 print(f"      ⚠️ Erro ao calcular FFT do canal {nome_canal_legivel}: {e}. Pulado.")
                 houve_erro_no_grupo = True
@@ -224,13 +244,18 @@ def main():
 
     caminho_log = registrar_log(raiz_path, "03_fft", {
         "data_dir": raiz_path.resolve(),
+        "metodo_espectral": METODO_ESPECTRAL,
+        "janela": args.janela,
+        "nperseg": args.nperseg,
+        "noverlap": noverlap_configurado,
+        "scaling": "spectrum (amplitude = sqrt(Pxx), mesma unidade da FFT usada nas etapas 04/05)",
+        "detrend": "constant",
         "fs_acl_hz": args.fs_acl,
         "fs_pzt_hz": args.fs_pzt,
         "fs_fallback_hz": args.fs,
         "faixa_low_hz": f"0-{args.f1:.0f}",
         "faixa_mid_hz": f"{args.f1:.0f}-{args.f2:.0f}",
         "faixa_high_hz": f"{args.f2:.0f}-Nyquist",
-        "janela": "hanning",
         "salvar_figuras": args.salvar_figuras,
         "quick": args.quick,
         "grupos_processados": grupos_ok,

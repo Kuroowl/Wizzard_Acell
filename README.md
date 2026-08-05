@@ -12,7 +12,7 @@ Wizzard_Acell/
 ├── Scripts/
 │   ├── 01_leitura.py          # Leitura e parsing dos dados brutos
 │   ├── 02_preprocessamento.py # Filtragem e limpeza do sinal
-│   ├── 03_fft.py              # Transformada Rápida de Fourier
+│   ├── 03_fft.py              # Espectro via scipy.signal.welch (método de Welch)
 │   ├── 04_picos.py            # Detecção e identificação de picos
 │   ├── 05_heatmap.py          # Mapa espectral por condição (freq x T1..Tn), por sensor
 │   ├── 06_waterfall.py        # Gráfico Waterfall espectral
@@ -49,11 +49,15 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 
 ## 🗺️ Etapa 05 — Mapa espectral por condição
 
-Gera, por sensor e por canal, um heatmap com eixo X = frequência (Hz), eixo
-Y = condição de ensaio (T1...Tn), cor = amplitude — consolidando o espectro
-completo (`Etapas/FFT`) de todas as condições daquele sensor num único
-gráfico, com os picos (`Etapas/Picos`, escopos `low`/`mid`/`high`)
-sobrepostos como marcadores vermelhos (desligável com `--sem-picos`).
+Gera, por sensor e por canal, **3 heatmaps** — um por faixa (`low` 0-f1,
+`mid` f1-f2, `high` f2-freq_max) — com eixo X = frequência (Hz), eixo
+Y = condição de ensaio (T1...Tn), cor = amplitude. Cada figura consolida
+o espectro (`Etapas/FFT`) de todas as condições daquele sensor/canal
+**dentro daquela faixa**, com os picos daquela faixa (`Etapas/Picos`)
+sobrepostos como marcadores coloridos (azul/verde/vermelho — ver etapa 04;
+desligável com `--sem-picos`). A matriz salva em `Etapas/Heatmap/{sensor}/
+{canal}.parquet` continua cobrindo o espectro inteiro (0 até freq_max), só
+as figuras são divididas por faixa.
 
 Precisa de pelo menos 2 condições por sensor/canal (heatmap de 1 linha só
 não faz sentido); condições/canais sem dado suficiente são pulados com
@@ -99,9 +103,20 @@ Linhas de condições ausentes do CSV (ou CSV ausente) simplesmente caem no
 comportamento padrão (eixo categórico, sem linhas teóricas) para aquela
 sensor — a etapa não falha por metadado incompleto.
 
-**Outros parâmetros**: `--escala {norm,db,raw}` (padrão `norm`, normaliza
-cada condição pelo próprio pico — `db` usa `--db-min` como piso, padrão
--40 dB), `--cmap` (colormap do matplotlib), `--freq-max`/`--freq-resolucao`
-(grid comum de frequência usado para interpolar as condições, já que cada
-uma pode ter resolução espectral diferente), `--f1`/`--f2` (só para as
-linhas verticais pontilhadas que demarcam low/mid/high no gráfico).
+**Escala de cor (`--escala`)** — a referência usada pra colorir cada
+heatmap é calculada **dentro de cada faixa** (não no espectro inteiro), pra
+uma faixa muito mais forte não afogar visualmente as outras duas:
+
+| valor              | o que faz |
+|--------------------|-----------|
+| `abs-global` **(padrão)** | Opção A: uma única referência (a maior amplitude absoluta entre TODAS as condições daquela faixa) pra toda a figura. Unidade original preservada, comparável entre condições. |
+| `abs-condicao`     | Opção B: cada condição usa o próprio pico como referência (equivalente, na prática, ao mesmo cálculo do `pico-canal` abaixo — é a única forma de dar a cada linha seu próprio teto de cor numa imagem só). |
+| `pico-canal`       | Normalização relativa: cada condição dividida pelo próprio pico (0 a 1, sem unidade). |
+| `rms-canal`        | Cada condição dividida pelo próprio RMS (realça sinal acima do "nível médio de ruído" daquela condição). |
+| `db`               | Amplitude em dB relativa ao pico de cada condição; piso configurável via `--db-min` (padrão -40 dB). |
+
+**Outros parâmetros**: `--cmap` (colormap do matplotlib), `--freq-max`
+(teto da faixa `high`; padrão automático), `--freq-resolucao` (grid comum
+de frequência usado para interpolar as condições, já que cada uma pode ter
+resolução espectral diferente), `--f1`/`--f2` (limites `low`/`mid`/`high`,
+mesma convenção das etapas 03/04).

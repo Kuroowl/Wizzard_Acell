@@ -109,17 +109,43 @@ def construir_matriz(condicoes_ordenadas: list[str], espectros: dict, freq_grid:
 
 
 def converter_escala(matrix_raw: np.ndarray, modo_escala: str, db_min: float):
-    """Converte a matriz RAW pra 'norm' (0-1 por linha) ou 'db' (relativo ao pico de cada linha)."""
+    """
+    Converte a matriz RAW (já recortada pra UMA faixa: low/mid/high) pra a
+    escala de cor escolhida. Todos os modos "por condição" (pico-canal,
+    abs-condicao, rms-canal, db) calculam a referência LINHA A LINHA (uma
+    condição não influencia a escala da outra); "abs-global" usa uma única
+    referência pra toda a matriz (todas as condições daquela faixa).
+    """
     eps = 1e-12
-    if modo_escala == "norm":
-        picos = np.max(matrix_raw, axis=1, keepdims=True) + eps
+    abs_matrix = np.abs(matrix_raw)
+
+    if modo_escala in ("pico-canal", "abs-condicao"):
+        # Mesma operação matemática nos dois nomes (é a única forma de dar a
+        # cada condição seu próprio teto de cor dentro de uma imagem só) —
+        # "pico-canal" é lido como normalização relativa (0-1, sem unidade);
+        # "abs-condicao" é a mesma escala lida como "absoluta, mas com
+        # referência própria de cada condição" (Opção B do heatmap).
+        picos = np.max(abs_matrix, axis=1, keepdims=True) + eps
         dados = matrix_raw / picos
-        return dados, 0.0, 1.0, "FFT Amplitude - Normalized (per condition)"
+        rotulo = ("Amplitude - normalized to per-condition peak" if modo_escala == "pico-canal"
+                  else "Amplitude - absolute scale per condition (own peak = 1.0)")
+        return dados, 0.0, 1.0, rotulo
+
+    if modo_escala == "rms-canal":
+        rms = np.sqrt(np.mean(matrix_raw ** 2, axis=1, keepdims=True)) + eps
+        dados = matrix_raw / rms
+        return dados, 0.0, float(np.max(dados)) if dados.size else 1.0, "Amplitude - normalized to per-condition RMS"
+
     if modo_escala == "db":
-        picos = np.max(matrix_raw, axis=1, keepdims=True) + eps
-        dados = 20 * np.log10((matrix_raw / picos) + eps)
-        return dados, db_min, 0.0, "FFT Amplitude (dB, relative to peak per condition)"
-    return matrix_raw, float(np.min(matrix_raw)), float(np.max(matrix_raw)), "FFT Amplitude - Raw"
+        picos = np.max(abs_matrix, axis=1, keepdims=True) + eps
+        dados = 20 * np.log10((abs_matrix / picos) + eps)
+        return dados, db_min, 0.0, "Amplitude (dB, relative to per-condition peak)"
+
+    # abs-global (DEFAULT) — Opção A: mesma referência (máxima absoluta,
+    # entre TODAS as condições) pra toda a matriz; valores plotados em
+    # unidade original (sem dividir nada).
+    v_max_global = float(np.max(abs_matrix)) if abs_matrix.size else eps
+    return matrix_raw, 0.0, v_max_global, "Amplitude - absolute, shared scale across all conditions"
 
 
 # ==============================================================================
@@ -134,8 +160,10 @@ def main():
                          help="Caminho de um CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,"
                               "reducao_cavidade) — ver formato no README. Se omitido, o eixo Y usa o "
                               "rótulo categórico da condição (T1..Tn).")
-    parser.add_argument("--escala", choices=["norm", "db", "raw"], default="norm",
-                         help="Escala de cor do heatmap (padrão: norm).")
+    parser.add_argument("--escala", choices=["abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
+                         default="abs-global",
+                         help="Escala de cor do heatmap (padrão: abs-global). Ver README para o que cada "
+                              "modo significa.")
     parser.add_argument("--db-min", type=float, default=-40.0,
                          help="Piso (dB) usado quando --escala db (padrão: -40.0).")
     parser.add_argument("--cmap", type=str, default="viridis",
@@ -266,9 +294,8 @@ def main():
             freq_grid = np.arange(0.0, freq_max, args.freq_resolucao)
 
             matrix_raw = construir_matriz(condicoes_com_dado, espectros, freq_grid)
-            matrix_plot, v_min, v_max, label_cbar = converter_escala(matrix_raw, args.escala, args.db_min)
 
-            # --- salva a matriz consolidada (RAW, não escalada) para reuso futuro ---
+            # --- salva a matriz consolidada COMPLETA (RAW, não escalada, banda inteira) para reuso futuro ---
             df_heatmap = pd.DataFrame(
                 matrix_raw,
                 index=pd.Index(condicoes_com_dado, name="condicao"),
@@ -277,84 +304,91 @@ def main():
             df_heatmap["y_valor"] = df_heatmap["condicao"].map(dict(zip(condicoes_com_dado, valores_y_canal)))
             nome_canal_arquivo = sanitizar_nome(canal)
             salvar_grupo(df_heatmap, sensor, nome_canal_arquivo, output_dir)
+            print(f"      💾 Matriz salva: Etapas/Heatmap/{sensor}/{nome_canal_arquivo}.parquet")
 
-            # --- figura ---
-            fig, ax = plt.subplots(figsize=(12, 7), dpi=150)
-            im = ax.imshow(
-                matrix_plot, aspect="auto", origin="lower", cmap=args.cmap,
-                extent=[freq_grid[0], freq_grid[-1], min(valores_y_canal), max(valores_y_canal)]
-                if len(valores_y_canal) > 1 else [freq_grid[0], freq_grid[-1], -0.5, 0.5],
-                vmin=v_min, vmax=v_max, interpolation="nearest",
-            )
-            cbar = plt.colorbar(im, ax=ax, orientation="horizontal", pad=0.14, aspect=50)
-            cbar.set_label(label_cbar, fontsize=11, labelpad=6)
+            reducao_shaft, reducao_cavidade = obter_reducoes(metadados, condicoes_com_dado) if usar_eixo_continuo else (None, None)
 
-            if not usar_eixo_continuo:
-                ax.set_yticks(valores_y_canal)
-                ax.set_yticklabels(condicoes_com_dado)
+            # --- 3 figuras por canal: low/mid/high, cada uma com sua PRÓPRIA escala de cor
+            # (calculada só com os dados daquela faixa — assim uma faixa muito mais forte
+            # não "afoga" visualmente as outras duas, ver discussão no README) ---
+            faixas = [
+                (0.0, args.f1, "low"),
+                (args.f1, args.f2, "mid"),
+                (args.f2, freq_max, "high"),
+            ]
 
-            # --- linhas de referência low/mid boundary (sempre) ---
-            ax.axvline(args.f1, color="white", linestyle=":", linewidth=1.2, alpha=0.7)
-            ax.axvline(args.f2, color="white", linestyle=":", linewidth=1.2, alpha=0.7)
+            for f_min, f_max, rotulo_faixa in faixas:
+                mascara_freq = (freq_grid >= f_min) & (freq_grid <= f_max)
+                if not mascara_freq.any():
+                    print(f"      ⚠️ Canal {canal} | faixa {rotulo_faixa}: sem dado nessa faixa, pulando figura.")
+                    continue
 
-            # --- linhas teóricas (só com eixo contínuo + reduções conhecidas) ---
-            if usar_eixo_continuo and reducao_shaft and reducao_cavidade:
-                y_cont = np.linspace(min(valores_y_canal), max(valores_y_canal), 200)
-                ax.plot(y_cont, y_cont, c="black", alpha=0.6, linewidth=2, label="1X Motor / VFD")
-                ax.plot(y_cont / reducao_shaft, y_cont, c="red", alpha=0.6, linewidth=2, label="1X Pump Shaft")
-                f_cav = y_cont / reducao_cavidade
-                ax.plot(f_cav, y_cont, c="red", alpha=0.7, linestyle="--", linewidth=2, label="1X Cavity")
-                ax.plot(2 * f_cav, y_cont, c="red", alpha=0.7, linestyle="-.", linewidth=2, label="2X Cavity")
-                ax.plot(4 * f_cav, y_cont, c="red", alpha=0.7, linestyle=":", linewidth=2, label="4X Cavity")
+                freq_grid_faixa = freq_grid[mascara_freq]
+                matrix_plot, v_min, v_max, label_cbar = converter_escala(
+                    matrix_raw[:, mascara_freq], args.escala, args.db_min
+                )
 
-            # --- overlay dos picos (Etapas/Picos), se disponível ---
-            if not args.sem_picos:
-                overlay_por_faixa = {"low": ([], []), "mid": ([], []), "high": ([], [])}
-                algum_pico_encontrado = False
-                for condicao, y_valor in zip(condicoes_com_dado, valores_y_canal):
-                    caminho_picos = pasta_picos_raiz / str(sensor) / f"{condicao}.parquet"
-                    if not caminho_picos.exists():
-                        continue
-                    try:
-                        df_picos = pd.read_parquet(caminho_picos)
-                    except Exception:
-                        continue
-                    mascara_canal = df_picos["canal"] == canal
-                    for rotulo_faixa in ("low", "mid", "high"):
-                        mascara = mascara_canal & (df_picos["escopo"] == rotulo_faixa)
-                        for f_p in df_picos.loc[mascara, "freq_hz"]:
-                            overlay_por_faixa[rotulo_faixa][0].append(f_p)
-                            overlay_por_faixa[rotulo_faixa][1].append(y_valor)
-                            algum_pico_encontrado = True
+                fig, ax = plt.subplots(figsize=(12, 7), dpi=150)
+                im = ax.imshow(
+                    matrix_plot, aspect="auto", origin="lower", cmap=args.cmap,
+                    extent=[freq_grid_faixa[0], freq_grid_faixa[-1], min(valores_y_canal), max(valores_y_canal)]
+                    if len(valores_y_canal) > 1 else [freq_grid_faixa[0], freq_grid_faixa[-1], -0.5, 0.5],
+                    vmin=v_min, vmax=v_max, interpolation="nearest",
+                )
+                cbar = plt.colorbar(im, ax=ax, orientation="horizontal", pad=0.14, aspect=50)
+                cbar.set_label(label_cbar, fontsize=11, labelpad=6)
 
-                if algum_pico_encontrado:
-                    for rotulo_faixa, (freqs_overlay, y_overlay) in overlay_por_faixa.items():
-                        if not freqs_overlay:
+                if not usar_eixo_continuo:
+                    ax.set_yticks(valores_y_canal)
+                    ax.set_yticklabels(condicoes_com_dado)
+
+                # --- linhas teóricas (só com eixo contínuo + reduções conhecidas) ---
+                if usar_eixo_continuo and reducao_shaft and reducao_cavidade:
+                    y_cont = np.linspace(min(valores_y_canal), max(valores_y_canal), 200)
+                    ax.plot(y_cont, y_cont, c="black", alpha=0.6, linewidth=2, label="1X Motor / VFD")
+                    ax.plot(y_cont / reducao_shaft, y_cont, c="red", alpha=0.6, linewidth=2, label="1X Pump Shaft")
+                    f_cav = y_cont / reducao_cavidade
+                    ax.plot(f_cav, y_cont, c="red", alpha=0.7, linestyle="--", linewidth=2, label="1X Cavity")
+                    ax.plot(2 * f_cav, y_cont, c="red", alpha=0.7, linestyle="-.", linewidth=2, label="2X Cavity")
+                    ax.plot(4 * f_cav, y_cont, c="red", alpha=0.7, linestyle=":", linewidth=2, label="4X Cavity")
+
+                # --- overlay dos picos dessa faixa (Etapas/Picos), se disponível ---
+                if not args.sem_picos:
+                    freqs_overlay, y_overlay = [], []
+                    for condicao, y_valor in zip(condicoes_com_dado, valores_y_canal):
+                        caminho_picos = pasta_picos_raiz / str(sensor) / f"{condicao}.parquet"
+                        if not caminho_picos.exists():
                             continue
-                        ax.scatter(freqs_overlay, y_overlay, facecolors="none",
-                                   edgecolors=COR_PICOS[rotulo_faixa],
+                        try:
+                            df_picos = pd.read_parquet(caminho_picos)
+                        except Exception:
+                            continue
+                        mascara = (df_picos["canal"] == canal) & (df_picos["escopo"] == rotulo_faixa)
+                        for f_p in df_picos.loc[mascara, "freq_hz"]:
+                            freqs_overlay.append(f_p)
+                            y_overlay.append(y_valor)
+
+                    if freqs_overlay:
+                        ax.scatter(freqs_overlay, y_overlay, facecolors="none", edgecolors=COR_PICOS[rotulo_faixa],
                                    marker="o", s=40, linewidths=1.2, alpha=0.9, zorder=5,
                                    label=f"Peaks ({rotulo_faixa})")
-                else:
-                    print(f"      ℹ️ Canal {canal}: nenhum pico encontrado em Etapas/Picos para sobrepor "
-                          f"(rode a etapa 04 antes, se quiser essa camada).")
 
-            My_axis(
-                ax, font=13,
-                xlim=[freq_grid[0], freq_grid[-1]],
-                ylim=[min(valores_y_canal), max(valores_y_canal)] if len(valores_y_canal) > 1 else [-0.5, 0.5],
-                setaxis=[f"Spectral Map - {sensor} | {canal}\n", "Frequency (Hz)", rotulo_eixo_y],
-                legbox=[0.98, 0.98, 1, 10],
-            )
+                My_axis(
+                    ax, font=13,
+                    xlim=[freq_grid_faixa[0], freq_grid_faixa[-1]],
+                    ylim=[min(valores_y_canal), max(valores_y_canal)] if len(valores_y_canal) > 1 else [-0.5, 0.5],
+                    setaxis=[f"Spectral Map ({rotulo_faixa}) - {sensor} | {canal} | {f_min:.0f}-{f_max:.0f} Hz\n",
+                             "Frequency (Hz)", rotulo_eixo_y],
+                    legbox=[0.98, 0.98, 1, 10],
+                )
 
-            nome_figura = f"heatmap_{nome_canal_arquivo}.png"
-            caminho_figura = pasta_figuras / nome_figura
-            plt.tight_layout()
-            plt.savefig(caminho_figura, dpi=150)
-            plt.close(fig)
+                nome_figura = f"heatmap_{nome_canal_arquivo}_{rotulo_faixa}_{f_min:.0f}-{f_max:.0f}hz.png"
+                caminho_figura = pasta_figuras / nome_figura
+                plt.tight_layout()
+                plt.savefig(caminho_figura, dpi=150)
+                plt.close(fig)
 
-            print(f"      🖼️ Figura salva: Figuras/{sensor}/Heatmap/{nome_figura}")
-            print(f"      💾 Matriz salva: Etapas/Heatmap/{sensor}/{nome_canal_arquivo}.parquet")
+                print(f"      🖼️ Figura salva: Figuras/{sensor}/Heatmap/{nome_figura}")
 
         sensores_ok += 1
         if houve_erro_no_sensor:

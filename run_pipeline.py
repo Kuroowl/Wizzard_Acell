@@ -30,6 +30,9 @@ STEPS_SUPORTAM_FIGURAS_OPCIONAIS = {"03_fft.py"}
 # Script que aceita os parâmetros de identificação de picos
 STEPS_SUPORTAM_PICOS = {"04_picos.py"}
 
+# Script que aceita os parâmetros do welch (FFT) da etapa 03
+STEPS_SUPORTAM_WELCH = {"03_fft.py"}
+
 # Script que aceita os parâmetros do mapa espectral por condição
 STEPS_SUPORTAM_HEATMAP = {"05_heatmap.py"}
 
@@ -77,7 +80,10 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              fs_acl: float = None, fs_pzt: float = None, f1: float = None, f2: float = None,
              salvar_figuras: bool = False, n_picos: int = None,
              min_dist_acl: float = None, min_dist_pzt: float = None, min_dist: float = None,
-             metadados_condicoes: str = None, escala_heatmap: str = None) -> bool:
+             nperseg: int = None, noverlap: int = None, janela: str = None,
+             metadados_condicoes: str = None, escala: str = None, cmap: str = None,
+             freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
+             sem_picos: bool = False) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -106,6 +112,13 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--f2", str(f2)])
     if script_name in STEPS_SUPORTAM_FIGURAS_OPCIONAIS and salvar_figuras:
         cmd.append("--salvar-figuras")
+    if script_name in STEPS_SUPORTAM_WELCH:
+        if nperseg is not None:
+            cmd.extend(["--nperseg", str(nperseg)])
+        if noverlap is not None:
+            cmd.extend(["--noverlap", str(noverlap)])
+        if janela is not None:
+            cmd.extend(["--janela", janela])
     if script_name in STEPS_SUPORTAM_PICOS:
         if n_picos is not None:
             cmd.extend(["--n-picos", str(n_picos)])
@@ -118,8 +131,18 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
     if script_name in STEPS_SUPORTAM_HEATMAP:
         if metadados_condicoes is not None:
             cmd.extend(["--metadados-condicoes", metadados_condicoes])
-        if escala_heatmap is not None:
-            cmd.extend(["--escala", escala_heatmap])
+        if escala is not None:
+            cmd.extend(["--escala", escala])
+        if cmap is not None:
+            cmd.extend(["--cmap", cmap])
+        if freq_max is not None:
+            cmd.extend(["--freq-max", str(freq_max)])
+        if freq_resolucao is not None:
+            cmd.extend(["--freq-resolucao", str(freq_resolucao)])
+        if db_min is not None:
+            cmd.extend(["--db-min", str(db_min)])
+        if sem_picos:
+            cmd.append("--sem-picos")
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -161,11 +184,30 @@ def main():
                          help="Distância mínima (Hz) entre picos para sensores PZT (padrão do script: 5.0).")
     parser.add_argument("--min-dist", type=float, default=None,
                          help="Distância mínima (Hz) de fallback entre picos para outros sensores (padrão do script: 2.0).")
+    parser.add_argument("--nperseg", type=int, default=None,
+                         help="Tamanho do segmento (nperseg) do scipy.signal.welch na etapa 03, em amostras "
+                              "(padrão do script: 8192).")
+    parser.add_argument("--noverlap", type=int, default=None,
+                         help="Sobreposição entre segmentos (noverlap) do welch na etapa 03, em amostras "
+                              "(padrão do script: metade do nperseg).")
+    parser.add_argument("--janela", type=str, default=None,
+                         help="Janela usada pelo welch na etapa 03 (padrão do script: hann).")
     parser.add_argument("--metadados-condicoes", type=str, default=None,
                          help="CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,reducao_cavidade) "
                               "para a etapa 05 usar eixo Y contínuo + linhas teóricas no heatmap.")
-    parser.add_argument("--escala-heatmap", type=str, default=None, choices=["norm", "db", "raw"],
-                         help="Escala de cor do heatmap da etapa 05 (padrão do script: norm).")
+    parser.add_argument("--escala", type=str, default=None,
+                         choices=["abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
+                         help="Escala de cor do heatmap da etapa 05 (padrão do script: abs-global).")
+    parser.add_argument("--db-min", type=float, default=None,
+                         help="Piso (dB) do heatmap quando --escala db (padrão do script: -40.0).")
+    parser.add_argument("--cmap", type=str, default=None,
+                         help="Colormap do matplotlib para o heatmap da etapa 05 (padrão do script: viridis).")
+    parser.add_argument("--freq-max", type=float, default=None,
+                         help="Frequência máxima (Hz) da faixa 'high' do heatmap da etapa 05 (padrão do script: automático).")
+    parser.add_argument("--freq-resolucao", type=float, default=None,
+                         help="Resolução (Hz) do grid de frequência do heatmap da etapa 05 (padrão do script: 0.5).")
+    parser.add_argument("--sem-picos", action="store_true",
+                         help="Não sobrepõe os picos (Etapas/Picos) no heatmap da etapa 05.")
     args = parser.parse_args()
 
     print("=== Wizzard Acell - Pipeline de Análise ===")
@@ -203,8 +245,11 @@ def main():
                             fs_acl=args.fs_acl, fs_pzt=args.fs_pzt, f1=args.f1, f2=args.f2,
                             salvar_figuras=args.salvar_figuras_fft, n_picos=args.n_picos,
                             min_dist_acl=args.min_dist_acl, min_dist_pzt=args.min_dist_pzt,
-                            min_dist=args.min_dist, metadados_condicoes=args.metadados_condicoes,
-                            escala_heatmap=args.escala_heatmap)
+                            min_dist=args.min_dist, nperseg=args.nperseg, noverlap=args.noverlap,
+                            janela=args.janela, metadados_condicoes=args.metadados_condicoes,
+                            escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
+                            freq_resolucao=args.freq_resolucao, db_min=args.db_min,
+                            sem_picos=args.sem_picos)
         if not success:
             break
     else:
