@@ -73,6 +73,10 @@ def main():
                          help="Limite entre a faixa BAIXA e MÉDIA, em Hz (padrão: 15.0).")
     parser.add_argument("--f2", type=float, default=400.0,
                          help="Limite entre a faixa MÉDIA e ALTA, em Hz (padrão: 400.0).")
+    parser.add_argument("--salvar-figuras", action="store_true",
+                         help="Gera as figuras de FFT por faixa (Figuras/{sensor}/{condicao}/FFTs/). "
+                              "Desligado por padrão: a etapa 04 (picos) já gera o mesmo gráfico "
+                              "com os picos marcados, então manter as duas seria redundante.")
     args = parser.parse_args()
 
     fs_por_sensor = {"ACL": args.fs_acl, "PZT": args.fs_pzt}
@@ -138,10 +142,13 @@ def main():
             continue
 
         # Padrão: Figuras/{sensor}/{condicao}/FFTs/ (mesmo nível que a pasta
-        # TimeSerie/ gerada na etapa 02).
-        pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao) / "FFTs"
-        pasta_figuras.mkdir(parents=True, exist_ok=True)
-        pastas_alteradas.add(pasta_figuras)
+        # TimeSerie/ gerada na etapa 02). Só é criada se --salvar-figuras
+        # for passado; por padrão a etapa 04 (picos) cobre esse gráfico.
+        pasta_figuras = None
+        if args.salvar_figuras:
+            pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao) / "FFTs"
+            pasta_figuras.mkdir(parents=True, exist_ok=True)
+            pastas_alteradas.add(pasta_figuras)
 
         espectros_grupo = {}  # nome_canal -> (freqs, amplitude), para salvar tudo junto no final
         houve_erro_no_grupo = False
@@ -169,38 +176,39 @@ def main():
 
             espectros_grupo[nome_canal_legivel] = (freqs, amplitude)
 
-            for f_min, f_max, rotulo in faixas:
-                mascara = (freqs >= f_min) & (freqs <= f_max)
-                if not mascara.any():
-                    continue
+            if pasta_figuras is not None:
+                for f_min, f_max, rotulo in faixas:
+                    mascara = (freqs >= f_min) & (freqs <= f_max)
+                    if not mascara.any():
+                        continue
 
-                fig, ax1 = plt.subplots(figsize=(10, 5))
-                cor_linha = 'green' if str(sensor).upper() == 'ACL' else 'black'
-                ax1.plot(freqs[mascara], amplitude[mascara], c=cor_linha, alpha=0.9, linewidth=1.0)
+                    fig, ax1 = plt.subplots(figsize=(10, 5))
+                    cor_linha = 'green' if str(sensor).upper() == 'ACL' else 'black'
+                    ax1.plot(freqs[mascara], amplitude[mascara], c=cor_linha, alpha=0.9, linewidth=1.0)
 
-                y_max = amplitude[mascara].max() * 1.2
-                y_max = max(y_max, 1e-9)
+                    y_max = amplitude[mascara].max() * 1.2
+                    y_max = max(y_max, 1e-9)
 
-                My_axis(
-                    ax1,
-                    font=12,
-                    xlim=[f_min, f_max],
-                    ylim=[0, y_max],
-                    setaxis=[
-                        f"FFT ({rotulo}) - {sensor} | {condicao} | {nome_canal_legivel} | {f_min:.0f}-{f_max:.0f} Hz\n",
-                        "Frequency (Hz)",
-                        "Amplitude"
-                    ]
-                )
+                    My_axis(
+                        ax1,
+                        font=12,
+                        xlim=[f_min, f_max],
+                        ylim=[0, y_max],
+                        setaxis=[
+                            f"FFT ({rotulo}) - {sensor} | {condicao} | {nome_canal_legivel} | {f_min:.0f}-{f_max:.0f} Hz\n",
+                            "Frequency (Hz)",
+                            "Amplitude"
+                        ]
+                    )
 
-                nome_figura = f"fft_{nome_canal_arquivo}_{rotulo}_{f_min:.0f}-{f_max:.0f}hz.png"
-                caminho_figura = pasta_figuras / nome_figura
+                    nome_figura = f"fft_{nome_canal_arquivo}_{rotulo}_{f_min:.0f}-{f_max:.0f}hz.png"
+                    caminho_figura = pasta_figuras / nome_figura
 
-                plt.tight_layout()
-                plt.savefig(caminho_figura, dpi=150)
-                plt.close(fig)
+                    plt.tight_layout()
+                    plt.savefig(caminho_figura, dpi=150)
+                    plt.close(fig)
 
-                print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/FFTs/{nome_figura}")
+                    print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/FFTs/{nome_figura}")
 
         if espectros_grupo:
             # Salva todos os canais do grupo num único parquet: freq_hz + uma coluna de amplitude por canal
@@ -223,6 +231,7 @@ def main():
         "faixa_media_hz": f"{args.f1:.0f}-{args.f2:.0f}",
         "faixa_alta_hz": f"{args.f2:.0f}-Nyquist",
         "janela": "hanning",
+        "salvar_figuras": args.salvar_figuras,
         "quick": args.quick,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,

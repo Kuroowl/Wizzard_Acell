@@ -27,12 +27,14 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 ├── Etapas/                    # Todas as saídas .parquet, agrupadas por etapa
 │   ├── Leitura/{sensor}/{condicao}.parquet
 │   ├── Preprocessamento/{sensor}/{condicao}.parquet
-│   └── FFT/{sensor}/{condicao}.parquet
+│   ├── FFT/{sensor}/{condicao}.parquet             # freq_hz + amplitude por canal
+│   └── Picos/{sensor}/{condicao}.parquet           # canal, ordem_pico, freq_hz, amplitude, faixa
 │
 ├── Figuras/                   # Figuras de análise, por sensor/condição
 │   └── {sensor}/{condicao}/
 │       ├── TimeSerie/         # gerada na etapa 02
-│       └── FFTs/              # gerada na etapa 03
+│       ├── FFTs/              # etapa 03, OPCIONAL (--salvar-figuras, desligado por padrão)
+│       └── Picos/             # etapa 04 — mesmo gráfico da FFT + marcador vermelho nos picos
 │
 └── Logs/
     └── pipeline_log.txt       # log cumulativo (append), 1 entrada por execução:

@@ -15,13 +15,20 @@ PIPELINE_STEPS = [
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py"}
 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
-STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py"}
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py"}
+
+# Script que aceita --salvar-figuras (por padrão a etapa 03 não gera mais
+# figuras de FFT, já que a 04 gera o mesmo gráfico com os picos marcados)
+STEPS_SUPORTAM_FIGURAS_OPCIONAIS = {"03_fft.py"}
+
+# Script que aceita os parâmetros de identificação de picos
+STEPS_SUPORTAM_PICOS = {"04_picos.py"}
 
 
 def selecionar_pasta_windows() -> str:
@@ -64,7 +71,9 @@ def resolver_indice_etapa(valor: str) -> int:
 
 
 def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float = None,
-             fs_acl: float = None, fs_pzt: float = None, f1: float = None, f2: float = None) -> bool:
+             fs_acl: float = None, fs_pzt: float = None, f1: float = None, f2: float = None,
+             salvar_figuras: bool = False, n_picos: int = None,
+             min_dist_acl: float = None, min_dist_pzt: float = None, min_dist: float = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -91,6 +100,17 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--f1", str(f1)])
         if f2 is not None:
             cmd.extend(["--f2", str(f2)])
+    if script_name in STEPS_SUPORTAM_FIGURAS_OPCIONAIS and salvar_figuras:
+        cmd.append("--salvar-figuras")
+    if script_name in STEPS_SUPORTAM_PICOS:
+        if n_picos is not None:
+            cmd.extend(["--n-picos", str(n_picos)])
+        if min_dist_acl is not None:
+            cmd.extend(["--min-dist-acl", str(min_dist_acl)])
+        if min_dist_pzt is not None:
+            cmd.extend(["--min-dist-pzt", str(min_dist_pzt)])
+        if min_dist is not None:
+            cmd.extend(["--min-dist", str(min_dist)])
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -121,6 +141,17 @@ def main():
                          help="Limite entre faixa baixa e média da FFT, em Hz (padrão do script: 15.0).")
     parser.add_argument("--f2", type=float, default=None,
                          help="Limite entre faixa média e alta da FFT, em Hz (padrão do script: 400.0).")
+    parser.add_argument("--salvar-figuras-fft", action="store_true",
+                         help="Gera as figuras de FFT por faixa na etapa 03 (desligado por padrão; "
+                              "a etapa 04 já gera o mesmo gráfico com os picos marcados).")
+    parser.add_argument("--n-picos", type=int, default=None,
+                         help="Número de picos a identificar por canal na etapa 04 (padrão do script: 5).")
+    parser.add_argument("--min-dist-acl", type=float, default=None,
+                         help="Distância mínima (Hz) entre picos para sensores ACL (padrão do script: 2.0).")
+    parser.add_argument("--min-dist-pzt", type=float, default=None,
+                         help="Distância mínima (Hz) entre picos para sensores PZT (padrão do script: 5.0).")
+    parser.add_argument("--min-dist", type=float, default=None,
+                         help="Distância mínima (Hz) de fallback entre picos para outros sensores (padrão do script: 2.0).")
     args = parser.parse_args()
 
     print("=== Wizzard Acell - Pipeline de Análise ===")
@@ -155,7 +186,10 @@ def main():
 
     for step in etapas_a_rodar:
         success = run_step(step, data_path, quick=args.quick, fs=args.fs,
-                            fs_acl=args.fs_acl, fs_pzt=args.fs_pzt, f1=args.f1, f2=args.f2)
+                            fs_acl=args.fs_acl, fs_pzt=args.fs_pzt, f1=args.f1, f2=args.f2,
+                            salvar_figuras=args.salvar_figuras_fft, n_picos=args.n_picos,
+                            min_dist_acl=args.min_dist_acl, min_dist_pzt=args.min_dist_pzt,
+                            min_dist=args.min_dist)
         if not success:
             break
     else:
