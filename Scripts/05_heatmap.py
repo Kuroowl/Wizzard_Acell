@@ -31,6 +31,22 @@ My_axis = _estilo.My_axis
 COR_PICOS = {"low": "#2979FF", "mid": "#00C853", "high": "#FF1744"}
 
 
+def _bordas_a_partir_de_centros(centros) -> np.ndarray:
+    """
+    Converte posições centrais (ex.: f_vfd_hz de cada condição) em bordas
+    (len+1), pra usar com pcolormesh — respeita o espaçamento REAL entre
+    condições, ao contrário do imshow (que assume espaçamento uniforme).
+    """
+    centros = np.asarray(centros, dtype=float)
+    if len(centros) == 1:
+        return np.array([centros[0] - 0.5, centros[0] + 0.5])
+    bordas = np.empty(len(centros) + 1)
+    bordas[1:-1] = (centros[:-1] + centros[1:]) / 2
+    bordas[0] = centros[0] - (centros[1] - centros[0]) / 2
+    bordas[-1] = centros[-1] + (centros[-1] - centros[-2]) / 2
+    return bordas
+
+
 def sanitizar_nome(nome: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in str(nome)).strip("_") or "canal"
 
@@ -219,7 +235,7 @@ def main():
     pastas_alteradas = {output_dir}
     sensores_ok, sensores_com_erro = 0, 0
 
-    print(f"⚙️ Gerando mapa espectral por condição para {len(lista_sensores)} sensor(es)...\n")
+    print(f"⚙️ Gerando mapa espectral por condição para {len(lista_sensores)} tipo(s) de sensor...\n")
 
     for sensor in lista_sensores:
         condicoes_disponiveis = sorted(sensores[sensor].keys())
@@ -329,11 +345,11 @@ def main():
                 )
 
                 fig, ax = plt.subplots(figsize=(12, 7), dpi=150)
-                im = ax.imshow(
-                    matrix_plot, aspect="auto", origin="lower", cmap=args.cmap,
-                    extent=[freq_grid_faixa[0], freq_grid_faixa[-1], min(valores_y_canal), max(valores_y_canal)]
-                    if len(valores_y_canal) > 1 else [freq_grid_faixa[0], freq_grid_faixa[-1], -0.5, 0.5],
-                    vmin=v_min, vmax=v_max, interpolation="nearest",
+                bordas_x = _bordas_a_partir_de_centros(freq_grid_faixa)
+                bordas_y = _bordas_a_partir_de_centros(valores_y_canal)
+                im = ax.pcolormesh(
+                    bordas_x, bordas_y, matrix_plot, cmap=args.cmap, vmin=v_min, vmax=v_max,
+                    shading="flat",
                 )
                 cbar = plt.colorbar(im, ax=ax, orientation="horizontal", pad=0.14, aspect=50)
                 cbar.set_label(label_cbar, fontsize=11, labelpad=6)
@@ -406,13 +422,13 @@ def main():
         "f2_hz": args.f2,
         "sobrepor_picos": not args.sem_picos,
         "quick": args.quick,
-        "sensores_processados": sensores_ok,
-        "sensores_com_aviso": sensores_com_erro,
+        "tipos_de_sensor_processados": sensores_ok,
+        "tipos_de_sensor_com_aviso": sensores_com_erro,
     }, pastas_alteradas=pastas_alteradas)
 
     print("\n" + "=" * 65)
     print(f"✅ Etapa 05 (Heatmap) Concluída!")
-    print(f"   Sensores processados: {sensores_ok} | Sensores com algum aviso: {sensores_com_erro}")
+    print(f"   Tipos de sensor processados: {sensores_ok} | Tipos de sensor com algum aviso: {sensores_com_erro}")
     print(f"💾 Matrizes salvas em: {output_dir.resolve()}")
     print(f"📝 Log de parâmetros: {caminho_log.resolve()}")
     print("=" * 65 + "\n")

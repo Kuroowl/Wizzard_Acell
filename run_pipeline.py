@@ -10,18 +10,19 @@ PIPELINE_STEPS = [
     "03_fft.py",
     "04_picos.py",
     "05_heatmap.py",
-    "06_waterfall.py",
-    "07_relatorio.py",
+    "06_mapa_espacial.py",
+    "07_waterfall.py",
+    "08_relatorio.py",
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py"}
 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
-STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py"}
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py"}
 
 # Script que aceita --salvar-figuras (por padrão a etapa 03 não gera mais
 # figuras de FFT, já que a 04 gera o mesmo gráfico com os picos marcados)
@@ -35,6 +36,12 @@ STEPS_SUPORTAM_WELCH = {"03_fft.py"}
 
 # Script que aceita os parâmetros do mapa espectral por condição
 STEPS_SUPORTAM_HEATMAP = {"05_heatmap.py"}
+
+# Script que aceita os parâmetros do mapa espacial (entre sensores/canais)
+STEPS_SUPORTAM_MAPA_ESPACIAL = {"06_mapa_espacial.py"}
+
+# Parâmetros de escala/aparência compartilhados pelas etapas 05 e 06
+STEPS_SUPORTAM_ESCALA_MAPA = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_MAPA_ESPACIAL
 
 
 def selecionar_pasta_windows() -> str:
@@ -81,7 +88,8 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              salvar_figuras: bool = False, n_picos: int = None,
              min_dist_acl: float = None, min_dist_pzt: float = None, min_dist: float = None,
              nperseg: int = None, noverlap: int = None, janela: str = None,
-             metadados_condicoes: str = None, escala: str = None, cmap: str = None,
+             metadados_condicoes: str = None, metadados_canais: str = None,
+             escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
              sem_picos: bool = False) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
@@ -128,9 +136,11 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--min-dist-pzt", str(min_dist_pzt)])
         if min_dist is not None:
             cmd.extend(["--min-dist", str(min_dist)])
-    if script_name in STEPS_SUPORTAM_HEATMAP:
-        if metadados_condicoes is not None:
-            cmd.extend(["--metadados-condicoes", metadados_condicoes])
+    if script_name in STEPS_SUPORTAM_HEATMAP and metadados_condicoes is not None:
+        cmd.extend(["--metadados-condicoes", metadados_condicoes])
+    if script_name in STEPS_SUPORTAM_MAPA_ESPACIAL and metadados_canais is not None:
+        cmd.extend(["--metadados-canais", metadados_canais])
+    if script_name in STEPS_SUPORTAM_ESCALA_MAPA:
         if escala is not None:
             cmd.extend(["--escala", escala])
         if cmap is not None:
@@ -195,6 +205,9 @@ def main():
     parser.add_argument("--metadados-condicoes", type=str, default=None,
                          help="CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,reducao_cavidade) "
                               "para a etapa 05 usar eixo Y contínuo + linhas teóricas no heatmap.")
+    parser.add_argument("--metadados-canais", type=str, default=None,
+                         help="CSV opcional (sensor,canal,posicao_m,rotulo) para a etapa 06 usar posição "
+                              "física no eixo Y do mapa espacial.")
     parser.add_argument("--escala", type=str, default=None,
                          choices=["abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
                          help="Escala de cor do heatmap da etapa 05 (padrão do script: abs-global).")
@@ -247,6 +260,7 @@ def main():
                             min_dist_acl=args.min_dist_acl, min_dist_pzt=args.min_dist_pzt,
                             min_dist=args.min_dist, nperseg=args.nperseg, noverlap=args.noverlap,
                             janela=args.janela, metadados_condicoes=args.metadados_condicoes,
+                            metadados_canais=args.metadados_canais,
                             escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
                             sem_picos=args.sem_picos)

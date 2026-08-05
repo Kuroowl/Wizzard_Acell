@@ -4,6 +4,20 @@ Ferramenta de análise e processamento de dados de acelerometria/sinais, com pip
 
 ---
 
+## 🏷️ Terminologia: tipo de sensor vs. canal (sensor físico)
+
+`sensor` no código (`ACL`, `PZT`) é o **tipo/família de aquisição**, não um
+sensor físico individual. Os sensores físicos de verdade são os **canais**
+dentro de cada arquivo (`Channel 0`, `Channel 1`...) — hoje 4 canais nos
+arquivos ACL e 7 nos arquivos PZT, totalizando 11 sensores distribuídos ao
+longo da tubulação. Todo o processamento (FFT, picos, heatmap) já opera por
+canal individual (cada um com sua própria coluna de amplitude, seus
+próprios picos, sua própria normalização); só os logs/prints que diziam
+"sensores processados: N" se referiam a **tipos** de sensor, não à
+contagem de canais — texto corrigido, sem mudança de comportamento.
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```text
@@ -14,9 +28,10 @@ Wizzard_Acell/
 │   ├── 02_preprocessamento.py # Filtragem e limpeza do sinal
 │   ├── 03_fft.py              # Espectro via scipy.signal.welch (método de Welch)
 │   ├── 04_picos.py            # Detecção e identificação de picos
-│   ├── 05_heatmap.py          # Mapa espectral por condição (freq x T1..Tn), por sensor
-│   ├── 06_waterfall.py        # Gráfico Waterfall espectral
-│   └── 07_relatorio.py        # Consolidação e exportação de relatórios
+│   ├── 05_heatmap.py          # Mapa espectral por condição (freq x T1..Tn), por sensor/canal
+│   ├── 06_mapa_espacial.py    # Mapa espacial (freq x canal/sensor), por condição
+│   ├── 07_waterfall.py        # Gráfico Waterfall espectral
+│   └── 08_relatorio.py        # Consolidação e exportação de relatórios
 │
 ├── run_pipeline.py            # Script principal orquestrador
 ├── requirements.txt           # Dependências do projeto
@@ -29,15 +44,17 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 │   ├── Preprocessamento/{sensor}/{condicao}.parquet
 │   ├── FFT/{sensor}/{condicao}.parquet             # freq_hz + amplitude por canal
 │   ├── Picos/{sensor}/{condicao}.parquet           # canal, escopo (low/mid/high/global), ordem_pico, freq_hz, amplitude
-│   └── Heatmap/{sensor}/{canal}.parquet            # condicao, freq_hz, amplitude, y_valor (RAW, não escalado)
+│   ├── Heatmap/{sensor}/{canal}.parquet            # condicao, freq_hz, amplitude, y_valor (RAW, não escalado)
+│   └── MapaEspacial/{sensor}/{condicao}.parquet    # canal, freq_hz, amplitude, y_valor (RAW, não escalado)
 │
 ├── Figuras/                   # Figuras de análise
 │   └── {sensor}/
 │       ├── {condicao}/
 │       │   ├── TimeSerie/     # etapa 02
 │       │   ├── FFTs/          # etapa 03, OPCIONAL (--salvar-figuras, desligado por padrão)
-│       │   └── Picos/         # etapa 04 — mesmo gráfico da FFT + marcador vermelho nos picos
-│       └── Heatmap/           # etapa 05 — 1 figura por canal, consolidando TODAS as condições
+│       │   ├── Picos/         # etapa 04 — mesmo gráfico da FFT + marcador colorido nos picos
+│       │   └── MapaEspacial/  # etapa 06 — 3 figuras (low/mid/high), eixo Y = canal
+│       └── Heatmap/           # etapa 05 — 3 figuras por canal (low/mid/high), consolidando TODAS as condições
 │                               # (por isso fica em {sensor}/Heatmap/, não dentro de {condicao}/)
 │
 └── Logs/
@@ -120,3 +137,68 @@ uma faixa muito mais forte não afogar visualmente as outras duas:
 de frequência usado para interpolar as condições, já que cada uma pode ter
 resolução espectral diferente), `--f1`/`--f2` (limites `low`/`mid`/`high`,
 mesma convenção das etapas 03/04).
+
+**Nota técnica**: quando o eixo Y é contínuo (`f_vfd_hz`), as figuras usam
+`pcolormesh` com as bordas calculadas a partir do espaçamento REAL entre
+condições — se T1=42.5Hz e T2=24Hz mas T3=23.9Hz, a banda entre T2/T3 fica
+visualmente estreita e a banda T1/T2 larga, refletindo a distância real
+entre elas (ao contrário de um `imshow` simples, que espaçaria as 3
+igualmente e mentiria sobre a proximidade real entre condições).
+
+---
+
+## 🧭 Etapa 06 — Mapa espacial (entre sensores/canais)
+
+Enquanto a etapa 05 compara uma condição ao longo do tempo de operação
+(mesmo canal, várias condições), a etapa 06 faz o oposto: compara os
+**canais entre si, para uma condição fixa**. Gera, por sensor e por
+condição, **3 heatmaps** (`low`/`mid`/`high`) com eixo X = frequência,
+eixo Y = canal (posição física, se disponível), cor = amplitude.
+Responde "nessa condição, qual sensor está vibrando mais forte, e em que
+frequência?" — o mapa espacial propriamente dito.
+
+Como os canais dentro de um mesmo grupo (sensor, condição) já compartilham
+o mesmo grid de frequência (saída da etapa 03/welch), não há interpolação
+aqui — só empilha as colunas na ordem certa.
+
+Feito **dentro do mesmo tipo de sensor** (ACL entre si, PZT entre si):
+comparar amplitude bruta entre ACL e PZT diretamente pode não ter sentido
+físico, já que são famílias de sensor diferentes com sensibilidade/unidade
+de calibração possivelmente distintas.
+
+Ao contrário da etapa 05, aqui **não** são desenhadas linhas teóricas (1X
+motor, shaft, cavidade) — elas dependem do eixo Y ser uma frequência (VFD),
+o que não é o caso quando o eixo Y é posição física.
+
+**Eixo Y por padrão**: nome cru do canal (`Channel 0`, `Channel 1`...),
+ordenado numericamente.
+
+**Metadados por canal (opcional)** — `--metadados-canais caminho.csv`:
+quando informado E completo para todos os canais daquele tipo de sensor, o
+eixo Y passa a ser a posição física real (metros, ao longo da tubulação),
+com rótulos descritivos no lugar do nome cru do canal. Mesma lógica "tudo
+ou nada por tipo de sensor" da etapa 05: se faltar `posicao_m` de qualquer
+canal daquele tipo, cai pro eixo categórico com aviso.
+
+Formato esperado do CSV (cabeçalho obrigatório, 1 linha por canal):
+
+| coluna       | obrigatória? | descrição |
+|--------------|:---:|-----------|
+| `sensor`     | sim | Tipo de sensor (`ACL` ou `PZT`), deve bater com o usado nas demais etapas. |
+| `canal`      | sim | Nome exato da coluna de origem (ex.: `Channel 0`). |
+| `posicao_m`  | não | Posição física ao longo da tubulação, em metros. Se vazio para qualquer canal do tipo, todo o tipo de sensor cai no eixo categórico. |
+| `rotulo`     | não | Nome descritivo pro eixo Y (ex.: "Sucção bomba"). Se vazio, usa o nome cru do canal. |
+
+Exemplo:
+
+```csv
+sensor,canal,posicao_m,rotulo
+ACL,Channel 0,0.0,Sucção bomba
+ACL,Channel 1,2.5,Após bomba
+ACL,Channel 2,8.0,Meio da linha
+ACL,Channel 3,15.0,Saída sistema
+```
+
+**Outros parâmetros**: `--escala` (mesmas 5 opções da etapa 05, mas a
+referência agora é por CANAL em vez de por condição — padrão `abs-global`),
+`--cmap`, `--freq-max`, `--f1`/`--f2`, `--sem-picos`.
