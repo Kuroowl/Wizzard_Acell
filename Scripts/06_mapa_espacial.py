@@ -104,9 +104,9 @@ def main():
     parser.add_argument("--metadados-canais", type=str, default=None,
                          help="Caminho de um CSV opcional (sensor,canal,posicao_m,rotulo) — ver formato "
                               "no README. Se omitido, o eixo Y usa o nome cru do canal (Channel 0, 1, 2...).")
-    parser.add_argument("--escala", choices=["abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
-                         default="abs-global",
-                         help="Escala de cor do mapa (padrão: abs-global). Aqui 'condição/canal' se refere "
+    parser.add_argument("--escala", choices=["db-global", "abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
+                         default="db-global",
+                         help="Escala de cor do mapa (padrão: db-global). Aqui 'condição/canal' se refere "
                               "à referência por CANAL (linha do mapa), não por condição de ensaio.")
     parser.add_argument("--db-min", type=float, default=-40.0,
                          help="Piso (dB) usado quando --escala db (padrão: -40.0).")
@@ -274,7 +274,20 @@ def main():
                 matrix_plot = 20 * np.log10((abs_sub / picos) + eps)
                 v_min, v_max = args.db_min, 0.0
                 label_cbar = "Amplitude (dB, relative to per-sensor peak)"
-            else:  # abs-global
+            elif args.escala == "db-global":
+                # Amplitude (dB) = 20*log10(A / A_max_global) — só o sensor
+                # que contém o pico global bate 0 dB; os outros ficam abaixo,
+                # preservando a comparação de intensidade ABSOLUTA entre sensores.
+                v_max_global = float(np.max(abs_sub)) if abs_sub.size else eps
+                matrix_plot = 20 * np.log10((abs_sub / v_max_global) + eps)
+                v_min, v_max = args.db_min, 0.0
+                label_cbar = "Amplitude (dB, relative to global peak across all sensors)"
+            elif args.escala == "abs-global":
+                matrix_plot = sub
+                v_min = 0.0
+                v_max = float(np.max(abs_sub)) if abs_sub.size else eps
+                label_cbar = "Amplitude - absolute, shared scale across all sensors"
+            else:
                 matrix_plot = sub
                 v_min = 0.0
                 v_max = float(np.max(abs_sub)) if abs_sub.size else eps
@@ -336,7 +349,7 @@ def main():
         "data_dir": raiz_path.resolve(),
         "metadados_canais": str(Path(args.metadados_canais).resolve()) if args.metadados_canais else None,
         "escala": args.escala,
-        "db_min": args.db_min if args.escala == "db" else None,
+        "db_min": args.db_min if args.escala in ("db", "db-global") else None,
         "cmap": args.cmap,
         "freq_max": args.freq_max,
         "f1_hz": args.f1,

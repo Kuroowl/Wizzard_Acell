@@ -209,8 +209,8 @@ def main():
                          help="CSV opcional (sensor,canal,posicao_m,rotulo) para a etapa 06 usar posição "
                               "física no eixo Y do mapa espacial.")
     parser.add_argument("--escala", type=str, default=None,
-                         choices=["abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
-                         help="Escala de cor do heatmap da etapa 05 (padrão do script: abs-global).")
+                         choices=["db-global", "abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
+                         help="Escala de cor do heatmap da etapa 05 e do mapa espacial da etapa 06 (padrão do script: db-global).")
     parser.add_argument("--db-min", type=float, default=None,
                          help="Piso (dB) do heatmap quando --escala db (padrão do script: -40.0).")
     parser.add_argument("--cmap", type=str, default=None,

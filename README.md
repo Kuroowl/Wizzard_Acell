@@ -126,11 +126,12 @@ uma faixa muito mais forte não afogar visualmente as outras duas:
 
 | valor              | o que faz |
 |--------------------|-----------|
-| `abs-global` **(padrão)** | Opção A: uma única referência (a maior amplitude absoluta entre TODAS as condições daquela faixa) pra toda a figura. Unidade original preservada, comparável entre condições. |
+| `db-global` **(padrão)** | `20·log10(A / A_max_global)` — só a condição que contém o pico global bate 0 dB; as demais ficam abaixo, preservando a comparação de intensidade ABSOLUTA entre condições. Piso configurável via `--db-min` (padrão -40 dB). |
+| `abs-global`       | Opção A "crua": uma única referência (a maior amplitude absoluta entre TODAS as condições daquela faixa) pra toda a figura, mas em unidade original (não em dB) — comparável entre condições, porém sem a compressão logarítmica que costuma facilitar a leitura visual. |
 | `abs-condicao`     | Opção B: cada condição usa o próprio pico como referência (equivalente, na prática, ao mesmo cálculo do `pico-canal` abaixo — é a única forma de dar a cada linha seu próprio teto de cor numa imagem só). |
 | `pico-canal`       | Normalização relativa: cada condição dividida pelo próprio pico (0 a 1, sem unidade). |
 | `rms-canal`        | Cada condição dividida pelo próprio RMS (realça sinal acima do "nível médio de ruído" daquela condição). |
-| `db`               | Amplitude em dB relativa ao pico de cada condição; piso configurável via `--db-min` (padrão -40 dB). |
+| `db`               | Amplitude em dB relativa ao pico de CADA condição (todas batem 0 dB no próprio pico — não preserva intensidade absoluta entre condições, ao contrário do `db-global`); piso via `--db-min`. |
 
 **Outros parâmetros**: `--cmap` (colormap do matplotlib), `--freq-max`
 (teto da faixa `high`; padrão automático), `--freq-resolucao` (grid comum
@@ -199,6 +200,6 @@ ACL,Channel 2,8.0,Meio da linha
 ACL,Channel 3,15.0,Saída sistema
 ```
 
-**Outros parâmetros**: `--escala` (mesmas 5 opções da etapa 05, mas a
-referência agora é por CANAL em vez de por condição — padrão `abs-global`),
+**Outros parâmetros**: `--escala` (mesmas 6 opções da etapa 05, mas a
+referência agora é por CANAL/SENSOR em vez de por condição — padrão `db-global`),
 `--cmap`, `--freq-max`, `--f1`/`--f2`, `--sem-picos`.

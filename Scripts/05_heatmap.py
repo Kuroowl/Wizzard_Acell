@@ -157,7 +157,17 @@ def converter_escala(matrix_raw: np.ndarray, modo_escala: str, db_min: float):
         dados = 20 * np.log10((abs_matrix / picos) + eps)
         return dados, db_min, 0.0, "Amplitude (dB, relative to per-condition peak)"
 
-    # abs-global (DEFAULT) — Opção A: mesma referência (máxima absoluta,
+    if modo_escala == "db-global":
+        # Amplitude (dB) = 20*log10(A(f,condicao) / A_max_global) — só a
+        # condição que contém o pico global bate 0 dB; as outras ficam
+        # abaixo, preservando a comparação de intensidade ABSOLUTA entre
+        # condições (ao contrário do "db" acima, que normaliza cada
+        # condição pelo próprio pico e por isso todas batem 0 dB).
+        v_max_global = float(np.max(abs_matrix)) if abs_matrix.size else eps
+        dados = 20 * np.log10((abs_matrix / v_max_global) + eps)
+        return dados, db_min, 0.0, "Amplitude (dB, relative to global peak across all conditions)"
+
+    # abs-global — Opção A: mesma referência (máxima absoluta,
     # entre TODAS as condições) pra toda a matriz; valores plotados em
     # unidade original (sem dividir nada).
     v_max_global = float(np.max(abs_matrix)) if abs_matrix.size else eps
@@ -176,9 +186,9 @@ def main():
                          help="Caminho de um CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,"
                               "reducao_cavidade) — ver formato no README. Se omitido, o eixo Y usa o "
                               "rótulo categórico da condição (T1..Tn).")
-    parser.add_argument("--escala", choices=["abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
-                         default="abs-global",
-                         help="Escala de cor do heatmap (padrão: abs-global). Ver README para o que cada "
+    parser.add_argument("--escala", choices=["db-global", "abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
+                         default="db-global",
+                         help="Escala de cor do heatmap (padrão: db-global). Ver README para o que cada "
                               "modo significa.")
     parser.add_argument("--db-min", type=float, default=-40.0,
                          help="Piso (dB) usado quando --escala db (padrão: -40.0).")
@@ -414,7 +424,7 @@ def main():
         "data_dir": raiz_path.resolve(),
         "metadados_condicoes": str(Path(args.metadados_condicoes).resolve()) if args.metadados_condicoes else None,
         "escala": args.escala,
-        "db_min": args.db_min if args.escala == "db" else None,
+        "db_min": args.db_min if args.escala in ("db", "db-global") else None,
         "cmap": args.cmap,
         "freq_max": args.freq_max,
         "freq_resolucao_hz": args.freq_resolucao,
