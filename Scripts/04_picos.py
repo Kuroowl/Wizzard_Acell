@@ -31,11 +31,14 @@ My_axis = _estilo.My_axis
 # 🛠️ 1. MÉTODO DE IDENTIFICAÇÃO DOS PICOS
 # ==============================================================================
 METODO_DESCRICAO = (
-    "scipy.signal.find_peaks sobre o espectro de amplitude (saida da etapa 03), "
-    "com distancia minima entre picos vizinhos (em Hz, ajustavel por tipo de "
-    "sensor) para evitar pegar varios pontos do mesmo lobulo espectral; entre "
-    "os picos validos, mantidos os N de maior amplitude por canal (N e a "
-    "distancia minima sao configuraveis via CLI)."
+    "scipy.signal.find_peaks aplicado SEPARADAMENTE em cada faixa de frequencia "
+    "(low/mid/high, mesmos limites f1/f2 da etapa 03) sobre o espectro de "
+    "amplitude (saida da etapa 03), com distancia minima entre picos vizinhos "
+    "(em Hz, ajustavel por tipo de sensor) para evitar pegar varios pontos do "
+    "mesmo lobulo espectral; dentro de cada faixa, mantidos os N de maior "
+    "amplitude por canal (N e a distancia minima sao configuraveis via CLI). "
+    "Buscar por faixa (em vez de no espectro inteiro) evita que uma faixa com "
+    "energia muito mais forte 'esconda' os picos de outra faixa mais fraca."
 )
 
 
@@ -81,14 +84,6 @@ def identificar_picos(freqs: np.ndarray, amplitude: np.ndarray, n_picos: int,
     return freqs[indices], amplitude[indices]
 
 
-def classificar_faixa(freq: float, f1: float, f2: float) -> str:
-    if freq <= f1:
-        return "baixa"
-    if freq <= f2:
-        return "media"
-    return "alta"
-
-
 # ==============================================================================
 # 🚀 2. EXECUÇÃO PRINCIPAL
 # ==============================================================================
@@ -98,7 +93,9 @@ def main():
     parser.add_argument("--quick", action="store_true",
                          help="Processa (e plota) apenas o primeiro grupo sensor/condicao, para teste rápido.")
     parser.add_argument("--n-picos", type=int, default=5,
-                         help="Número de picos a identificar por canal (padrão: 5).")
+                         help="Número de picos a identificar POR FAIXA (low/mid/high) e por canal "
+                              "(padrão: 5). A busca global (espectro inteiro, sem plot) usa sempre "
+                              "o dobro desse valor.")
     parser.add_argument("--min-dist-acl", type=float, default=2.0,
                          help="Distância mínima (Hz) entre picos vizinhos para sensores ACL (padrão: 2.0).")
     parser.add_argument("--min-dist-pzt", type=float, default=5.0,
@@ -106,10 +103,10 @@ def main():
     parser.add_argument("--min-dist", type=float, default=2.0,
                          help="Distância mínima (Hz) de fallback para sensores fora do mapeamento ACL/PZT (padrão: 2.0).")
     parser.add_argument("--f1", type=float, default=15.0,
-                         help="Limite entre a faixa BAIXA e MÉDIA, em Hz (padrão: 15.0). Só usado para "
-                              "classificar/plotar os picos por faixa, mesma convenção da etapa 03.")
+                         help="Limite entre a faixa LOW e MID, em Hz (padrão: 15.0). Define as faixas "
+                              "em que os picos são buscados, mesma convenção da etapa 03.")
     parser.add_argument("--f2", type=float, default=400.0,
-                         help="Limite entre a faixa MÉDIA e ALTA, em Hz (padrão: 400.0).")
+                         help="Limite entre a faixa MID e HIGH, em Hz (padrão: 400.0).")
     args = parser.parse_args()
 
     min_dist_por_sensor = {"ACL": args.min_dist_acl, "PZT": args.min_dist_pzt}
@@ -137,7 +134,8 @@ def main():
     grupos_ok, grupos_com_erro = 0, 0
     pastas_alteradas = {output_dir}
 
-    print(f"⚙️ Identificando picos (N={args.n_picos}) em {len(grupos)} grupo(s) sensor/condição...")
+    print(f"⚙️ Identificando picos (N={args.n_picos}/faixa, {args.n_picos * 2} global) em "
+          f"{len(grupos)} grupo(s) sensor/condição...")
     print(f"   Método: {METODO_DESCRICAO}\n")
 
     for sensor, condicao, caminho_parquet in grupos:
@@ -168,9 +166,9 @@ def main():
 
         nyquist = freqs.max() if freqs.size else 0.0
         faixas = [
-            (0.0, args.f1, "baixa"),
-            (args.f1, args.f2, "media"),
-            (args.f2, nyquist, "alta"),
+            (0.0, args.f1, "low"),
+            (args.f1, args.f2, "mid"),
+            (args.f2, nyquist, "high"),
         ]
 
         pasta_figuras = pasta_figuras_raiz / str(sensor) / str(condicao) / "Picos"
@@ -190,41 +188,47 @@ def main():
                 houve_erro_no_grupo = True
                 continue
 
-            freqs_pico, amp_pico = identificar_picos(freqs, amplitude, args.n_picos, min_dist_hz)
+            algum_pico_no_canal = False
 
-            if freqs_pico.size == 0:
-                print(f"      ⚠️ Canal {nome_canal_legivel}: nenhum pico identificado.")
-                houve_erro_no_grupo = True
-                continue
-
-            for ordem, (f_p, a_p) in enumerate(zip(freqs_pico, amp_pico), start=1):
-                linhas_picos.append({
-                    "canal": nome_canal_legivel,
-                    "ordem_pico": ordem,
-                    "freq_hz": float(f_p),
-                    "amplitude": float(a_p),
-                    "faixa": classificar_faixa(f_p, args.f1, args.f2),
-                })
-
-            # Mesmas figuras (por faixa) da etapa 03, com marcador vermelho em cada pico.
+            # --- 1) Busca POR FAIXA (low/mid/high), independente entre si ---
+            # Cada faixa é buscada isoladamente para que uma faixa com energia
+            # muito mais forte não "esconda" os picos (menores em escala
+            # absoluta, mas ainda relevantes) de outra faixa. Gera 1 figura
+            # por faixa, com os picos daquela faixa marcados em vermelho.
             for f_min, f_max, rotulo in faixas:
                 mascara = (freqs >= f_min) & (freqs <= f_max)
                 if not mascara.any():
                     continue
 
+                freqs_banda = freqs[mascara]
+                amp_banda = amplitude[mascara]
+                freqs_pico, amp_pico = identificar_picos(freqs_banda, amp_banda, args.n_picos, min_dist_hz)
+
+                if freqs_pico.size == 0:
+                    print(f"      ⚠️ Canal {nome_canal_legivel} | faixa {rotulo}: nenhum pico identificado.")
+                else:
+                    algum_pico_no_canal = True
+                    for ordem, (f_p, a_p) in enumerate(zip(freqs_pico, amp_pico), start=1):
+                        linhas_picos.append({
+                            "canal": nome_canal_legivel,
+                            "escopo": rotulo,
+                            "ordem_pico": ordem,
+                            "freq_hz": float(f_p),
+                            "amplitude": float(a_p),
+                        })
+
                 fig, ax1 = plt.subplots(figsize=(10, 5))
                 cor_linha = 'green' if str(sensor).upper() == 'ACL' else 'black'
-                ax1.plot(freqs[mascara], amplitude[mascara], c=cor_linha, alpha=0.9, linewidth=1.0)
+                ax1.plot(freqs_banda, amp_banda, c=cor_linha, alpha=0.9, linewidth=1.0)
 
-                mascara_picos_faixa = (freqs_pico >= f_min) & (freqs_pico <= f_max)
-                if mascara_picos_faixa.any():
+                if freqs_pico.size > 0:
                     ax1.scatter(
-                        freqs_pico[mascara_picos_faixa], amp_pico[mascara_picos_faixa],
+                        freqs_pico, amp_pico,
                         facecolors='none', edgecolors='red', marker='o', s=90,
-                        linewidths=1.8, zorder=5, label=f"Picos (N={args.n_picos})"
+                        linewidths=1.8, zorder=5, label=f"Peaks (N={args.n_picos})"
                     )
 
-                y_max = amplitude[mascara].max() * 1.2
+                y_max = amp_banda.max() * 1.2 if amp_banda.size else 1e-9
                 y_max = max(y_max, 1e-9)
 
                 My_axis(
@@ -233,13 +237,13 @@ def main():
                     xlim=[f_min, f_max],
                     ylim=[0, y_max],
                     setaxis=[
-                        f"FFT + Picos ({rotulo}) - {sensor} | {condicao} | {nome_canal_legivel} | {f_min:.0f}-{f_max:.0f} Hz\n",
+                        f"FFT + Peaks ({rotulo}) - {sensor} | {condicao} | {nome_canal_legivel} | {f_min:.0f}-{f_max:.0f} Hz\n",
                         "Frequency (Hz)",
                         "Amplitude"
                     ]
                 )
 
-                nome_figura = f"picos_{nome_canal_arquivo}_{rotulo}_{f_min:.0f}-{f_max:.0f}hz.png"
+                nome_figura = f"peaks_{nome_canal_arquivo}_{rotulo}_{f_min:.0f}-{f_max:.0f}hz.png"
                 caminho_figura = pasta_figuras / nome_figura
 
                 plt.tight_layout()
@@ -248,10 +252,35 @@ def main():
 
                 print(f"      🖼️ Figura salva: Figuras/{sensor}/{condicao}/Picos/{nome_figura}")
 
+            # --- 2) Busca GLOBAL (0 até Nyquist), só registro, sem figura ---
+            # Sempre o dobro do N pedido por faixa: como picos por faixa e
+            # picos globais respondem perguntas diferentes (destaque local vs.
+            # destaque no espectro inteiro), mantemos os dois registrados.
+            n_picos_global = args.n_picos * 2
+            freqs_pico_global, amp_pico_global = identificar_picos(
+                freqs, amplitude, n_picos_global, min_dist_hz
+            )
+
+            if freqs_pico_global.size == 0:
+                print(f"      ⚠️ Canal {nome_canal_legivel} | global: nenhum pico identificado.")
+            else:
+                algum_pico_no_canal = True
+                for ordem, (f_p, a_p) in enumerate(zip(freqs_pico_global, amp_pico_global), start=1):
+                    linhas_picos.append({
+                        "canal": nome_canal_legivel,
+                        "escopo": "global",
+                        "ordem_pico": ordem,
+                        "freq_hz": float(f_p),
+                        "amplitude": float(a_p),
+                    })
+
+            if not algum_pico_no_canal:
+                houve_erro_no_grupo = True
+
         if linhas_picos:
             df_picos = pd.DataFrame(linhas_picos)
             salvar_grupo(df_picos, sensor, condicao, output_dir)
-            print(f"      💾 {len(linhas_picos)} pico(s) registrado(s) em "
+            print(f"      💾 {len(linhas_picos)} peak(s) registrado(s) em "
                   f"Etapas/Picos/{sensor}/{condicao}.parquet")
 
         grupos_ok += 1
@@ -261,13 +290,14 @@ def main():
     caminho_log = registrar_log(raiz_path, "04_picos", {
         "data_dir": raiz_path.resolve(),
         "metodo": METODO_DESCRICAO,
-        "n_picos": args.n_picos,
+        "n_picos_por_faixa": args.n_picos,
+        "n_picos_global": args.n_picos * 2,
         "min_dist_acl_hz": args.min_dist_acl,
         "min_dist_pzt_hz": args.min_dist_pzt,
         "min_dist_fallback_hz": args.min_dist,
-        "faixa_baixa_hz": f"0-{args.f1:.0f}",
-        "faixa_media_hz": f"{args.f1:.0f}-{args.f2:.0f}",
-        "faixa_alta_hz": f"{args.f2:.0f}-Nyquist",
+        "faixa_low_hz": f"0-{args.f1:.0f}",
+        "faixa_mid_hz": f"{args.f1:.0f}-{args.f2:.0f}",
+        "faixa_high_hz": f"{args.f2:.0f}-Nyquist",
         "quick": args.quick,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
@@ -276,7 +306,7 @@ def main():
     print("\n" + "=" * 65)
     print(f"✅ Etapa 04 (Picos) Concluída!")
     print(f"   Grupos processados: {grupos_ok} | Grupos com algum aviso: {grupos_com_erro}")
-    print(f"💾 Picos (freq/amplitude/faixa por canal) salvos em: {output_dir.resolve()}")
+    print(f"💾 Picos (freq/amplitude/escopo por canal) salvos em: {output_dir.resolve()}")
     print(f"📝 Log de parâmetros: {caminho_log.resolve()}")
     print("=" * 65 + "\n")
 

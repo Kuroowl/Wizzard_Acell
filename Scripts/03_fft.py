@@ -116,11 +116,11 @@ def main():
         fs = obter_fs(sensor)
         nyquist = fs / 2.0
 
-        # Faixas: baixa [0, f1], média (f1, f2], alta (f2, Nyquist]
+        # Faixas: low [0, f1], mid (f1, f2], high (f2, Nyquist]
         faixas = [
-            (0.0, args.f1, "baixa"),
-            (args.f1, args.f2, "media"),
-            (args.f2, nyquist, "alta"),
+            (0.0, args.f1, "low"),
+            (args.f1, args.f2, "mid"),
+            (args.f2, nyquist, "high"),
         ]
 
         print(f"\n📖 Grupo: [{sensor}] | [{condicao}]  ←  {caminho_parquet.name}  "
@@ -227,9 +227,9 @@ def main():
         "fs_acl_hz": args.fs_acl,
         "fs_pzt_hz": args.fs_pzt,
         "fs_fallback_hz": args.fs,
-        "faixa_baixa_hz": f"0-{args.f1:.0f}",
-        "faixa_media_hz": f"{args.f1:.0f}-{args.f2:.0f}",
-        "faixa_alta_hz": f"{args.f2:.0f}-Nyquist",
+        "faixa_low_hz": f"0-{args.f1:.0f}",
+        "faixa_mid_hz": f"{args.f1:.0f}-{args.f2:.0f}",
+        "faixa_high_hz": f"{args.f2:.0f}-Nyquist",
         "janela": "hanning",
         "salvar_figuras": args.salvar_figuras,
         "quick": args.quick,
