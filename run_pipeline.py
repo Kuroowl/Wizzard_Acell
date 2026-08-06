@@ -91,7 +91,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              metadados_condicoes: str = None, metadados_canais: str = None,
              escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
-             sem_picos: bool = False, from_condicao: str = None) -> bool:
+             sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -107,6 +107,11 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
     if from_condicao:
         # Todas as etapas (01-06) já suportam --from.
         cmd.extend(["--from", from_condicao])
+    if ler_todos:
+        if script_name == "01_leitura.py":
+            cmd.append("--all")
+        else:
+            print(f"   ℹ️ --all é específico da etapa 01_leitura.py; ignorado em {script_name}.")
     if script_name in STEPS_SUPORTAM_FS:
         if fs is not None:
             cmd.extend(["--fs", str(fs)])
@@ -179,6 +184,10 @@ def main():
     parser.add_argument("--from", dest="from_condicao", type=str, default=None,
                          help="Retoma o pipeline a partir desta condição, inclusive (ex.: --start 02 --from T3 "
                               "processa T3, T4, T5... e pula T1/T2). Propagado para todas as etapas (01-06).")
+    parser.add_argument("--all", dest="ler_todos", action="store_true",
+                         help="Propagado apenas para 01_leitura.py: quando uma condição T<N> tem subgrupos "
+                              "G1/G2/G3 (blocos sequenciais no tempo), concatena todos os arquivos de todos "
+                              "os subgrupos em ordem sequencial. Padrão: lê só o primeiro arquivo de cada T<N>.")
     parser.add_argument("--fs", type=float, default=None,
                          help="Taxa de amostragem (Hz) de fallback, propagada para as etapas que usam esse parâmetro.")
     parser.add_argument("--fs-acl", type=float, default=None,
@@ -269,7 +278,8 @@ def main():
                             metadados_canais=args.metadados_canais,
                             escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
-                            sem_picos=args.sem_picos, from_condicao=args.from_condicao)
+                            sem_picos=args.sem_picos, from_condicao=args.from_condicao,
+                            ler_todos=args.ler_todos)
         if not success:
             break
     else:

@@ -60,6 +60,44 @@ def extrair_numero_condicao(nome):
     return int(match.group(1)) if match else None
 
 
+def extrair_numero_subgrupo(caminho_relativo) -> int:
+    """
+    Extrai o número do subgrupo G<N> a partir das partes de um caminho
+    relativo à pasta da condição (ex.: 'G2/arquivo.csv' -> 2).
+
+    Um operador pode ter subpastas G1/G2/G3 dentro de T<N>, que
+    representam blocos sequenciais no tempo dentro daquela condição.
+    Arquivos soltos direto em T<N> (sem subpasta G<N>) contam como
+    "grupo 0", para que sempre venham antes de qualquer G1/G2/G3 na
+    ordenação sequencial.
+    """
+    for parte in Path(caminho_relativo).parts:
+        match = re.fullmatch(r"G(\d+)", parte, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    return 0
+
+
+def ordenar_arquivos_sequencialmente(pasta_base: Path, arquivos) -> list:
+    """
+    Ordena uma lista de arquivos (Path) encontrados sob `pasta_base` de
+    forma determinística e sequencial:
+      1º) pelo número do subgrupo (G1, G2, G3... arquivos soltos em
+          T<N>, sem subgrupo, contam como grupo 0 e vêm primeiro);
+      2º) pelo nome do arquivo, como desempate dentro do mesmo grupo.
+
+    Necessário porque `Path.rglob()` NÃO garante nenhuma ordem
+    específica (depende do sistema de arquivos) — sem isso, a
+    concatenação sequencial G1 -> G2 -> G3 (modo --all) não seria
+    confiável.
+    """
+    def chave(arq: Path):
+        rel = arq.relative_to(pasta_base)
+        return (extrair_numero_subgrupo(rel), rel.name.lower())
+
+    return sorted(arquivos, key=chave)
+
+
 def filtrar_desde_condicao(itens, condicao_minima, indice_condicao=None):
     """
     Suporte a --from CONDICAO (retomar uma etapa a partir de uma condição
