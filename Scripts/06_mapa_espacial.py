@@ -212,7 +212,6 @@ def main():
         except Exception as e:
             print(f"⚠️ Não foi possível ler {caminho_metadados_canais} ({e}). Seguindo sem metadados.")
             metadados_canais = {}
-            metadados_canais = {}
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
     output_dir = raiz_path / "DadosTratados" / "Etapas" / "MapaEspacial"
@@ -263,17 +262,24 @@ def main():
 
         if usar_eixo_continuo:
             canais_ordenados = sorted(canais, key=lambda c: metadados_canais[(str(sensor).upper(), c)]["posicao_m"])
-            valores_y = [metadados_canais[(str(sensor).upper(), c)]["posicao_m"] for c in canais_ordenados]
+            valores_reais = [metadados_canais[(str(sensor).upper(), c)]["posicao_m"] for c in canais_ordenados]
             rotulos_y = [metadados_canais[(str(sensor).upper(), c)]["rotulo"] or c for c in canais_ordenados]
             rotulo_eixo_y = "Position along pipeline (m)"
         else:
             canais_ordenados = sorted(canais, key=_chave_ordenacao_canal)
-            valores_y = list(range(len(canais_ordenados)))
+            valores_reais = None
             rotulos_y = [
                 (metadados_canais.get((str(sensor).upper(), c), {}).get("rotulo") or c)
                 for c in canais_ordenados
             ]
             rotulo_eixo_y = "Sensor / Channel"
+
+        # Eixo Y SEMPRE com bandas de altura igual (0,1,2...), mesmo no modo
+        # contínuo — posicao_m é um conjunto de pontos discretos (onde os
+        # sensores foram instalados), não uma variável amostrada
+        # continuamente; usar a posição real distorce a altura das bandas e
+        # empurra os canais extremos pra beira do gráfico (ver README).
+        valores_y = list(range(len(canais_ordenados)))
 
         # --- matriz (canal x freq) — todos os canais de um grupo já compartilham
         # o MESMO grid de frequência (saída da etapa 03), então não precisa
@@ -285,6 +291,8 @@ def main():
             matrix_raw, index=pd.Index(canais_ordenados, name="canal"), columns=freqs,
         ).reset_index().melt(id_vars="canal", var_name="freq_hz", value_name="amplitude")
         df_mapa["y_valor"] = df_mapa["canal"].map(dict(zip(canais_ordenados, valores_y)))
+        if usar_eixo_continuo:
+            df_mapa["posicao_m"] = df_mapa["canal"].map(dict(zip(canais_ordenados, valores_reais)))
         salvar_grupo(df_mapa, sensor, condicao, output_dir)
         print(f"      💾 Matriz salva: Etapas/MapaEspacial/{sensor}/{condicao}.parquet")
 
@@ -367,15 +375,16 @@ def main():
             cbar = plt.colorbar(im, ax=ax, orientation="horizontal", pad=0.14, aspect=50)
             cbar.set_label(label_cbar, fontsize=11, labelpad=6)
 
-            if not usar_eixo_continuo:
-                ax.set_yticks(valores_y)
-                ax.set_yticklabels(rotulos_y)
-            elif any(r != c for r, c in zip(rotulos_y, canais_ordenados)):
-                # eixo contínuo mas com rótulos customizados: mostra os rótulos
-                # nas posições reais (útil quando o rótulo descreve o ponto,
-                # ex.: "Sucção", "Saída"), sem perder a escala física do eixo
-                ax.set_yticks(valores_y)
-                ax.set_yticklabels(rotulos_y)
+            ax.set_yticks(valores_y)
+            ax.set_yticklabels(rotulos_y)
+
+            # --- divisórias entre bandas nos limites (major tick) + linha
+            # sutil no centro de cada banda, lembrando que é um ponto
+            # discreto (a banda inteira é só espaçamento visual) ---
+            for borda in bordas_y:
+                ax.axhline(borda, color="white", alpha=0.5, linewidth=1.0, zorder=3)
+            for centro in valores_y:
+                ax.axhline(centro, color="white", alpha=0.22, linewidth=0.6, zorder=3)
 
             # --- overlay dos picos dessa faixa (Etapas/Picos), se disponível ---
             if df_picos_grupo is not None:
@@ -393,7 +402,7 @@ def main():
             My_axis(
                 ax, font=13,
                 xlim=[freqs_faixa[0], freqs_faixa[-1]],
-                ylim=[min(valores_y), max(valores_y)] if len(valores_y) > 1 else [-0.5, 0.5],
+                ylim=[bordas_y[0], bordas_y[-1]],
                 setaxis=[f"Spatial Map ({rotulo_faixa}) - {sensor} | {condicao} | {f_min:.0f}-{f_max:.0f} Hz\n",
                          "Frequency (Hz)", rotulo_eixo_y],
                 legbox=[0.98, 0.98, 1, 10],

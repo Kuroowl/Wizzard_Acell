@@ -327,12 +327,25 @@ def main():
 
         if usar_eixo_continuo:
             condicoes_ordenadas = sorted(condicoes_disponiveis, key=lambda c: metadados[c]["f_vfd_hz"])
-            valores_y = [metadados[c]["f_vfd_hz"] for c in condicoes_ordenadas]
+            valores_reais = [metadados[c]["f_vfd_hz"] for c in condicoes_ordenadas]
             rotulo_eixo_y = "VFD Frequency (Hz)"
         else:
             condicoes_ordenadas = condicoes_disponiveis  # já ordenado (sorted acima)
-            valores_y = list(range(len(condicoes_ordenadas)))
+            valores_reais = None
             rotulo_eixo_y = "Condition"
+
+        # Eixo Y SEMPRE com bandas de altura igual (0, 1, 2...), mesmo no modo
+        # contínuo — os f_vfd_hz são pontos discretos escolhidos no ensaio,
+        # não uma variável física amostrada continuamente; usar o valor real
+        # como posição no eixo distorce a altura das bandas (proporcional ao
+        # espaçamento real, desigual) e empurra os picos das condições
+        # extremas pra beira do gráfico. Os valores reais viram RÓTULO do
+        # tick, não mais a posição em si (ver README).
+        valores_y = list(range(len(condicoes_ordenadas)))
+        if usar_eixo_continuo:
+            rotulos_eixo_y_ticks = [f"{v:g}" for v in valores_reais]
+        else:
+            rotulos_eixo_y_ticks = condicoes_ordenadas
 
         # --- carrega os espectros de todas as condições desse sensor ---
         espectros_por_canal = {}  # canal -> {condicao: (freqs, amplitude)}
@@ -375,6 +388,11 @@ def main():
                 continue
 
             valores_y_canal = [valores_y[condicoes_ordenadas.index(c)] for c in condicoes_com_dado]
+            rotulos_y_canal = [rotulos_eixo_y_ticks[condicoes_ordenadas.index(c)] for c in condicoes_com_dado]
+            valores_reais_canal = (
+                [valores_reais[condicoes_ordenadas.index(c)] for c in condicoes_com_dado]
+                if usar_eixo_continuo else None
+            )
 
             freq_max_dados = min(freqs.max() for freqs, _ in espectros.values())
             freq_max = args.freq_max if args.freq_max is not None else freq_max_dados
@@ -389,6 +407,8 @@ def main():
                 columns=freq_grid,
             ).reset_index().melt(id_vars="condicao", var_name="freq_hz", value_name="amplitude")
             df_heatmap["y_valor"] = df_heatmap["condicao"].map(dict(zip(condicoes_com_dado, valores_y_canal)))
+            if usar_eixo_continuo:
+                df_heatmap["f_vfd_hz"] = df_heatmap["condicao"].map(dict(zip(condicoes_com_dado, valores_reais_canal)))
             nome_canal_arquivo = sanitizar_nome(canal)
             salvar_grupo(df_heatmap, sensor, nome_canal_arquivo, output_dir)
             print(f"      💾 Matriz salva: Etapas/Heatmap/{sensor}/{nome_canal_arquivo}.parquet")
@@ -417,6 +437,11 @@ def main():
 
                 fig, ax = plt.subplots(figsize=(12, 7), dpi=150)
                 bordas_x = _bordas_a_partir_de_centros(freq_grid_faixa)
+                # Bandas SEMPRE de altura igual (valores_y_canal são posições
+                # uniformes 0,1,2...) — os valores reais (f_vfd_hz/posicao_m)
+                # só entram como rótulo do tick, nunca como posição no eixo
+                # (ver nota técnica no README: são pontos discretos, não uma
+                # variável amostrada continuamente).
                 bordas_y = _bordas_a_partir_de_centros(valores_y_canal)
                 im = ax.pcolormesh(
                     bordas_x, bordas_y, matrix_plot, cmap=args.cmap, vmin=v_min, vmax=v_max,
@@ -425,19 +450,31 @@ def main():
                 cbar = plt.colorbar(im, ax=ax, orientation="horizontal", pad=0.14, aspect=50)
                 cbar.set_label(label_cbar, fontsize=11, labelpad=6)
 
-                if not usar_eixo_continuo:
-                    ax.set_yticks(valores_y_canal)
-                    ax.set_yticklabels(condicoes_com_dado)
+                ax.set_yticks(valores_y_canal)
+                ax.set_yticklabels(rotulos_y_canal)
+
+                # --- divisórias entre bandas nos limites (major tick) + linha
+                # sutil no centro de cada banda, lembrando que é um ponto
+                # discreto (a banda inteira é só espaçamento visual) ---
+                for borda in bordas_y:
+                    ax.axhline(borda, color="white", alpha=0.5, linewidth=1.0, zorder=3)
+                for centro in valores_y_canal:
+                    ax.axhline(centro, color="white", alpha=0.22, linewidth=0.6, zorder=3)
 
                 # --- linhas teóricas (só com eixo contínuo + reduções conhecidas) ---
+                # Traçadas como polilinha pelos N pontos REAIS conhecidos (não
+                # um linspace contínuo) — só sabemos a física exatamente nas
+                # condições realmente ensaiadas, então uma curva "lisa" entre
+                # elas seria inventar dado que não existe.
                 if usar_eixo_continuo and reducao_shaft and reducao_cavidade:
-                    y_cont = np.linspace(min(valores_y_canal), max(valores_y_canal), 200)
-                    ax.plot(y_cont, y_cont, c="black", alpha=0.6, linewidth=2, label="1X Motor / VFD")
-                    ax.plot(y_cont / reducao_shaft, y_cont, c="red", alpha=0.6, linewidth=2, label="1X Pump Shaft")
-                    f_cav = y_cont / reducao_cavidade
-                    ax.plot(f_cav, y_cont, c="red", alpha=0.7, linestyle="--", linewidth=2, label="1X Cavity")
-                    ax.plot(2 * f_cav, y_cont, c="red", alpha=0.7, linestyle="-.", linewidth=2, label="2X Cavity")
-                    ax.plot(4 * f_cav, y_cont, c="red", alpha=0.7, linestyle=":", linewidth=2, label="4X Cavity")
+                    y_pos = np.array(valores_y_canal, dtype=float)
+                    y_real = np.array(valores_reais_canal, dtype=float)
+                    ax.plot(y_real, y_pos, c="black", alpha=0.6, linewidth=1.5, marker="o", markersize=3, label="1X Motor / VFD")
+                    ax.plot(y_real / reducao_shaft, y_pos, c="red", alpha=0.6, linewidth=1.5, marker="o", markersize=3, label="1X Pump Shaft")
+                    f_cav = y_real / reducao_cavidade
+                    ax.plot(f_cav, y_pos, c="red", alpha=0.7, linestyle="--", linewidth=1.5, marker="o", markersize=3, label="1X Cavity")
+                    ax.plot(2 * f_cav, y_pos, c="red", alpha=0.7, linestyle="-.", linewidth=1.5, marker="o", markersize=3, label="2X Cavity")
+                    ax.plot(4 * f_cav, y_pos, c="red", alpha=0.7, linestyle=":", linewidth=1.5, marker="o", markersize=3, label="4X Cavity")
 
                 # --- overlay dos picos dessa faixa (Etapas/Picos), se disponível ---
                 if not args.sem_picos:
@@ -463,7 +500,7 @@ def main():
                 My_axis(
                     ax, font=13,
                     xlim=[freq_grid_faixa[0], freq_grid_faixa[-1]],
-                    ylim=[min(valores_y_canal), max(valores_y_canal)] if len(valores_y_canal) > 1 else [-0.5, 0.5],
+                    ylim=[bordas_y[0], bordas_y[-1]],
                     setaxis=[f"Spectral Map ({rotulo_faixa}) - {sensor} | {canal} | {f_min:.0f}-{f_max:.0f} Hz\n",
                              "Frequency (Hz)", rotulo_eixo_y],
                     legbox=[0.98, 0.98, 1, 10],
