@@ -91,7 +91,8 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              metadados_condicoes: str = None, metadados_canais: str = None,
              escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
-             sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False) -> bool:
+             sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
+             grupo_alvo: str = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -112,6 +113,11 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.append("--all")
         else:
             print(f"   ℹ️ --all é específico da etapa 01_leitura.py; ignorado em {script_name}.")
+    if grupo_alvo:
+        if script_name == "01_leitura.py":
+            cmd.extend(["--grupo", grupo_alvo])
+        else:
+            print(f"   ℹ️ --grupo é específico da etapa 01_leitura.py; ignorado em {script_name}.")
     if script_name in STEPS_SUPORTAM_FS:
         if fs is not None:
             cmd.extend(["--fs", str(fs)])
@@ -188,6 +194,9 @@ def main():
                          help="Propagado apenas para 01_leitura.py: quando uma condição T<N> tem subgrupos "
                               "G1/G2/G3 (blocos sequenciais no tempo), concatena todos os arquivos de todos "
                               "os subgrupos em ordem sequencial. Padrão: lê só o primeiro arquivo de cada T<N>.")
+    parser.add_argument("--grupo", dest="grupo_alvo", type=str, default=None,
+                         help="Propagado apenas para 01_leitura.py: concatena só os arquivos do subgrupo "
+                              "indicado (ex.: --grupo G1). Mutuamente exclusivo com --all.")
     parser.add_argument("--fs", type=float, default=None,
                          help="Taxa de amostragem (Hz) de fallback, propagada para as etapas que usam esse parâmetro.")
     parser.add_argument("--fs-acl", type=float, default=None,
@@ -238,6 +247,10 @@ def main():
                          help="Não sobrepõe os picos (Etapas/Picos) no heatmap da etapa 05.")
     args = parser.parse_args()
 
+    if args.ler_todos and args.grupo_alvo:
+        print("❌ --all e --grupo são mutuamente exclusivos. Use um ou outro.")
+        return
+
     print("=== Wizzard Acell - Pipeline de Análise ===")
 
     data_dir = args.data_dir or selecionar_pasta_windows()
@@ -279,7 +292,7 @@ def main():
                             escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
                             sem_picos=args.sem_picos, from_condicao=args.from_condicao,
-                            ler_todos=args.ler_todos)
+                            ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo)
         if not success:
             break
     else:

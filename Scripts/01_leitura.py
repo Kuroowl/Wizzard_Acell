@@ -33,6 +33,16 @@ def extrair_numero_ensaio(nome: str) -> int:
     return int(match.group(1)) if match else 9999
 
 
+def parse_grupo_alvo(valor: str) -> int:
+    """Converte o valor passado em --grupo (ex.: 'G1', 'g1', '1') para o
+    número inteiro do subgrupo. Levanta ValueError se o formato não bater
+    com G<N>/N, para falhar cedo com uma mensagem clara."""
+    match = re.fullmatch(r"G?(\d+)", valor.strip(), re.IGNORECASE)
+    if not match:
+        raise ValueError(f"Valor inválido para --grupo: '{valor}' (use algo como G1, G2, G3...).")
+    return int(match.group(1))
+
+
 def carregar_arquivo_sinal(caminho_arquivo: Path) -> pd.DataFrame:
     try:
         try:
@@ -48,7 +58,8 @@ def carregar_arquivo_sinal(caminho_arquivo: Path) -> pd.DataFrame:
 
 
 def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = False,
-                              from_condicao: str = None, ler_todos: bool = False):
+                              from_condicao: str = None, ler_todos: bool = False,
+                              grupo_alvo: int = None):
     """
     Percorre as pastas de ensaio e, PARA CADA GRUPO (sensor, condicao),
     concatena apenas os arquivos daquele grupo e salva imediatamente em
@@ -57,16 +68,27 @@ def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = Fal
 
     Dentro de cada pasta T<N> pode haver subpastas de subgrupo
     (G1/G2/G3, ...), representando blocos sequenciais no tempo dentro
-    daquela condição. O comportamento de leitura é controlado por
-    `ler_todos`:
+    daquela condição. Existem três modos de leitura, mutuamente
+    exclusivos:
 
-      - ler_todos=False (padrão): lê apenas o PRIMEIRO arquivo
-        encontrado em T<N>, na ordem sequencial G1 -> G2 -> G3 (e,
-        dentro de cada G, por nome de arquivo). Se não houver
-        subgrupos, é o primeiro arquivo (por nome) direto em T<N>.
+      - padrão (ler_todos=False, grupo_alvo=None): lê apenas o
+        PRIMEIRO arquivo encontrado em T<N>, na ordem sequencial
+        G1 -> G2 -> G3 (e, dentro de cada G, por nome de arquivo). Se
+        não houver subgrupos, é o primeiro arquivo (por nome) direto
+        em T<N>.
       - ler_todos=True (flag --all): concatena TODOS os arquivos de
-        TODOS os subgrupos de T<N>, na mesma ordem sequencial
-        G1 -> G2 -> G3, formando um único "mega arquivo" por condição.
+        TODOS os subgrupos de T<N>, na ordem sequencial G1 -> G2 -> G3
+        (e, dentro de cada G, por nome de arquivo), formando um único
+        "mega arquivo" por condição.
+      - grupo_alvo=N (flag --grupo GN): concatena apenas os arquivos
+        do subgrupo GN daquela condição (arquivo 1, 2, 3... n, na
+        ordem por nome), ignorando os demais subgrupos. Condições sem
+        o subgrupo GN são puladas com aviso.
+
+    Em nenhum dos modos a informação de subgrupo é persistida no
+    parquet de saída — ela só existe durante a leitura, para decidir
+    quais arquivos entram e em que ordem. As etapas seguintes do
+    pipeline não sabem (nem precisam saber) de onde cada linha veio.
     """
     alvo_dir = base_dir / "DadosPuros" / "Acelerometros"
     if not alvo_dir.exists():
@@ -116,7 +138,18 @@ def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = Fal
             print(f"   ⚠️ Nenhum arquivo válido em {tag_condicao}, pulando grupo.")
             continue
 
-        if ler_todos:
+        if grupo_alvo is not None:
+            arquivos_do_grupo = [
+                a for a in arquivos
+                if extrair_numero_subgrupo(a.relative_to(pasta_t)) == grupo_alvo
+            ]
+            if not arquivos_do_grupo:
+                print(f"   ⚠️ {tag_condicao} não tem subgrupo G{grupo_alvo}, pulando grupo.")
+                continue
+            print(f"   ℹ️  --grupo G{grupo_alvo}: {len(arquivos_do_grupo)} arquivo(s) em "
+                  f"{tag_condicao}/G{grupo_alvo} serão concatenados em ordem.")
+            arquivos = arquivos_do_grupo
+        elif ler_todos:
             if len(arquivos) > 1:
                 print(f"   ℹ️  --all: {len(arquivos)} arquivo(s) em {tag_condicao} "
                       f"serão concatenados em ordem sequencial (subgrupos G1/G2/G3...).")
@@ -124,7 +157,8 @@ def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = Fal
             if len(arquivos) > 1:
                 print(f"   ℹ️  {len(arquivos)} arquivo(s) encontrados em {tag_condicao}; "
                       f"lendo apenas o primeiro em ordem sequencial: {arquivos[0].name} "
-                      f"(use --all para concatenar todos os subgrupos).")
+                      f"(use --all para concatenar todos os subgrupos, ou --grupo GN para um "
+                      f"subgrupo específico).")
             arquivos = arquivos[:1]
 
         registros_grupo = []
@@ -138,7 +172,6 @@ def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = Fal
                 df_sinal["sensor"] = sensor
                 df_sinal["condicao"] = tag_condicao
                 df_sinal["ordem_ensaio"] = num_ensaio
-                df_sinal["subgrupo"] = subgrupo  # 0 = sem subpasta G<N>; senão, número de G<N>
                 df_sinal["arquivo_origem"] = arq.name
                 registros_grupo.append(df_sinal)
 
@@ -169,12 +202,24 @@ def main():
     parser.add_argument("--from", dest="from_condicao", type=str, default=None,
                          help="Retoma a partir desta condição, inclusive (ex.: --from T3 processa T3, "
                               "T4, T5... e pula T1/T2). Extrai o número do padrão T<N> no nome da pasta.")
-    parser.add_argument("--all", dest="ler_todos", action="store_true",
-                         help="Quando uma condição T<N> tem subgrupos G1/G2/G3 (blocos sequenciais "
-                              "no tempo), concatena TODOS os arquivos de TODOS os subgrupos, em ordem "
-                              "sequencial G1->G2->G3, formando um único mega arquivo por condição. "
-                              "Padrão (sem --all): lê apenas o primeiro arquivo, na mesma ordem sequencial.")
+    grupo_modo = parser.add_mutually_exclusive_group()
+    grupo_modo.add_argument("--all", dest="ler_todos", action="store_true",
+                             help="Quando uma condição T<N> tem subgrupos G1/G2/G3 (blocos sequenciais "
+                                  "no tempo), concatena TODOS os arquivos de TODOS os subgrupos, em ordem "
+                                  "sequencial G1->G2->G3, formando um único mega arquivo por condição.")
+    grupo_modo.add_argument("--grupo", dest="grupo_alvo_raw", type=str, default=None,
+                             help="Concatena apenas os arquivos de um subgrupo específico (ex.: --grupo G1), "
+                                  "ignorando os demais subgrupos daquela condição. Condições sem esse "
+                                  "subgrupo são puladas com aviso. Mutuamente exclusivo com --all.")
     args = parser.parse_args()
+
+    grupo_alvo = None
+    if args.grupo_alvo_raw is not None:
+        try:
+            grupo_alvo = parse_grupo_alvo(args.grupo_alvo_raw)
+        except ValueError as e:
+            print(f"❌ {e}")
+            exit(1)
 
     raiz_path = Path(args.data_dir)
 
@@ -186,13 +231,15 @@ def main():
 
     try:
         grupos = mapear_e_processar_dados(raiz_path, output_dir, quick=args.quick,
-                                           from_condicao=args.from_condicao, ler_todos=args.ler_todos)
+                                           from_condicao=args.from_condicao, ler_todos=args.ler_todos,
+                                           grupo_alvo=grupo_alvo)
 
         caminho_log = registrar_log(raiz_path, "01_leitura", {
             "data_dir": raiz_path.resolve(),
             "quick": args.quick,
             "from_condicao": args.from_condicao,
             "all": args.ler_todos,
+            "grupo": args.grupo_alvo_raw,
             "grupos_gerados": len(grupos),
         }, pastas_alteradas=[output_dir])
 
