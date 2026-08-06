@@ -20,6 +20,7 @@ def _carregar_modulo(nome: str, arquivo: str):
 
 _pipeline_io = _carregar_modulo("pipeline_io", "pipeline_io.py")
 listar_grupos = _pipeline_io.listar_grupos
+filtrar_desde_condicao = _pipeline_io.filtrar_desde_condicao
 carregar_grupo = _pipeline_io.carregar_grupo
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
@@ -142,6 +143,10 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--quick", action="store_true",
                          help="Processa apenas o primeiro grupo (sensor, condição) encontrado, para teste rápido.")
+    parser.add_argument("--from", dest="from_condicao", type=str, default=None,
+                         help="Retoma a etapa a partir desta condição, inclusive (ex.: --from T3 processa "
+                              "T3, T4, T5... e pula T1/T2). Extrai o número do padrão T<N> no nome da "
+                              "condição; nomes fora desse padrão nunca são descartados.")
     parser.add_argument("--metadados-canais", type=str, default=None,
                          help="Caminho de um CSV opcional (sensor,canal,posicao_m,rotulo) — ver formato "
                               "no README. Se omitido, o eixo Y usa o nome cru do canal (Channel 0, 1, 2...).")
@@ -180,6 +185,13 @@ def main():
     if args.quick:
         grupos = grupos[:1]
         print("⚡ Modo rápido (--quick): processando apenas o primeiro grupo (sensor, condição).\n")
+
+    grupos = filtrar_desde_condicao(grupos, args.from_condicao, indice_condicao=1)
+    if args.from_condicao:
+        print(f"⏩ Retomando a partir de {args.from_condicao} (--from): {len(grupos)} grupo(s) a processar.\n")
+        if not grupos:
+            print(f"❌ Nenhum grupo com condição >= {args.from_condicao} encontrado. Nada a fazer.")
+            exit(1)
 
     metadados_canais = {}
     caminho_metadados_canais = None
@@ -409,6 +421,7 @@ def main():
         "f2_hz": args.f2,
         "sobrepor_picos": not args.sem_picos,
         "quick": args.quick,
+        "from_condicao": args.from_condicao,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
     }, pastas_alteradas=pastas_alteradas)

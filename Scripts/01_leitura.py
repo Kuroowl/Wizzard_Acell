@@ -23,6 +23,7 @@ def _carregar_pipeline_io():
 _pipeline_io = _carregar_pipeline_io()
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
+extrair_numero_condicao = _pipeline_io.extrair_numero_condicao
 
 
 def extrair_numero_ensaio(nome: str) -> int:
@@ -44,7 +45,7 @@ def carregar_arquivo_sinal(caminho_arquivo: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = False):
+def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = False, from_condicao: str = None):
     """
     Percorre as pastas de ensaio e, PARA CADA GRUPO (sensor, condicao),
     concatena apenas os arquivos daquele grupo e salva imediatamente em
@@ -66,6 +67,12 @@ def mapear_e_processar_dados(base_dir: Path, output_dir: Path, quick: bool = Fal
     if quick:
         pastas_ensaio = pastas_ensaio[:1]
         print("⚡ Modo rápido (--quick): processando apenas a primeira pasta de ensaio.\n")
+
+    if from_condicao:
+        numero_min = extrair_numero_condicao(from_condicao)
+        if numero_min is not None:
+            pastas_ensaio = [p for p in pastas_ensaio if extrair_numero_ensaio(p.name) >= numero_min]
+        print(f"⏩ Retomando a partir de {from_condicao} (--from): {len(pastas_ensaio)} pasta(s) a processar.\n")
 
     grupos_gerados = []
 
@@ -119,6 +126,9 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--quick", action="store_true",
                          help="Processa apenas a primeira pasta de ensaio encontrada (teste rápido).")
+    parser.add_argument("--from", dest="from_condicao", type=str, default=None,
+                         help="Retoma a partir desta condição, inclusive (ex.: --from T3 processa T3, "
+                              "T4, T5... e pula T1/T2). Extrai o número do padrão T<N> no nome da pasta.")
     args = parser.parse_args()
 
     raiz_path = Path(args.data_dir)
@@ -130,11 +140,12 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        grupos = mapear_e_processar_dados(raiz_path, output_dir, quick=args.quick)
+        grupos = mapear_e_processar_dados(raiz_path, output_dir, quick=args.quick, from_condicao=args.from_condicao)
 
         caminho_log = registrar_log(raiz_path, "01_leitura", {
             "data_dir": raiz_path.resolve(),
             "quick": args.quick,
+            "from_condicao": args.from_condicao,
             "grupos_gerados": len(grupos),
         }, pastas_alteradas=[output_dir])
 

@@ -20,6 +20,7 @@ def _carregar_modulo(nome: str, arquivo: str):
 
 _pipeline_io = _carregar_modulo("pipeline_io", "pipeline_io.py")
 listar_grupos = _pipeline_io.listar_grupos
+filtrar_desde_condicao = _pipeline_io.filtrar_desde_condicao
 carregar_grupo = _pipeline_io.carregar_grupo
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
@@ -117,6 +118,10 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--quick", action="store_true",
                          help="Processa (e plota) apenas o primeiro grupo sensor/condicao, para teste rápido.")
+    parser.add_argument("--from", dest="from_condicao", type=str, default=None,
+                         help="Retoma a etapa a partir desta condição, inclusive (ex.: --from T3 processa "
+                              "T3, T4, T5... e pula T1/T2). Extrai o número do padrão T<N> no nome da "
+                              "condição; nomes fora desse padrão nunca são descartados.")
     parser.add_argument("--fs-acl", type=float, default=30000.0,
                          help="Taxa de amostragem (Hz) dos sensores ACL (padrão: 30000.0).")
     parser.add_argument("--fs-pzt", type=float, default=12500.0,
@@ -149,6 +154,13 @@ def main():
     if args.quick:
         grupos = grupos[:1]
         print("⚡ Modo rápido (--quick): processando apenas o primeiro grupo.\n")
+
+    grupos = filtrar_desde_condicao(grupos, args.from_condicao, indice_condicao=1)
+    if args.from_condicao:
+        print(f"⏩ Retomando a partir de {args.from_condicao} (--from): {len(grupos)} grupo(s) a processar.\n")
+        if not grupos:
+            print(f"❌ Nenhum grupo com condição >= {args.from_condicao} encontrado. Nada a fazer.")
+            exit(1)
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
     output_dir = raiz_path / "DadosTratados" / "Etapas" / "Preprocessamento"
@@ -247,6 +259,7 @@ def main():
         "fs_fallback_hz": args.fs,
         "tratamento": "remocao_dc_offset + interpolacao_nan_inf (sem filtro de frequencia, sem normalizacao)",
         "quick": args.quick,
+        "from_condicao": args.from_condicao,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
     }, pastas_alteradas=pastas_alteradas)

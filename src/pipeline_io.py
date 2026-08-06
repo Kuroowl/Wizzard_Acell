@@ -12,6 +12,7 @@ monolítico). Isso permite:
 from pathlib import Path
 from datetime import datetime
 import getpass
+import re
 import pandas as pd
 
 
@@ -50,6 +51,45 @@ def listar_grupos(etapa_dir: Path):
 def carregar_grupo(caminho: Path) -> pd.DataFrame:
     """Carrega um único grupo (sensor, condicao) sob demanda."""
     return pd.read_parquet(caminho)
+
+
+def extrair_numero_condicao(nome):
+    """Extrai o número de uma condição no padrão T<N> (ex.: 'T3' -> 3,
+    'T10' -> 10). Retorna None se o nome não bater com esse padrão."""
+    match = re.search(r"T(\d+)", str(nome), re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def filtrar_desde_condicao(itens, condicao_minima, indice_condicao=None):
+    """
+    Suporte a --from CONDICAO (retomar uma etapa a partir de uma condição
+    específica, inclusive). Filtra `itens` mantendo só os que têm número de
+    condição >= o de `condicao_minima` (extraído via extrair_numero_condicao).
+
+    `itens`: lista de strings (condicao) ou de tuplas onde um dos elementos
+    é a condicao (informe `indice_condicao` nesse caso, ex.: 1 para o
+    formato (sensor, condicao, caminho) do listar_grupos).
+
+    Comportamento seguro: se `condicao_minima` for None/vazio, retorna a
+    lista inteira sem filtrar. Se não for possível extrair um número de
+    `condicao_minima` (ou de algum item), esse item NÃO é descartado — é
+    mantido, para nunca perder dados silenciosamente por um nome fora do
+    padrão T<N>.
+    """
+    if not condicao_minima:
+        return itens
+
+    numero_min = extrair_numero_condicao(condicao_minima)
+    if numero_min is None:
+        return itens
+
+    resultado = []
+    for item in itens:
+        condicao = item[indice_condicao] if indice_condicao is not None else item
+        numero = extrair_numero_condicao(condicao)
+        if numero is None or numero >= numero_min:
+            resultado.append(item)
+    return resultado
 
 
 def registrar_log(raiz_path: Path, etapa: str, parametros: dict,

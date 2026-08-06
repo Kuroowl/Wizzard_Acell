@@ -23,6 +23,7 @@ listar_grupos = _pipeline_io.listar_grupos
 carregar_grupo = _pipeline_io.carregar_grupo
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
+filtrar_desde_condicao = _pipeline_io.filtrar_desde_condicao
 
 _estilo = _carregar_modulo("estilo_grafico", "estilo_grafico.py")
 My_axis = _estilo.My_axis
@@ -223,6 +224,10 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--quick", action="store_true",
                          help="Processa apenas o primeiro sensor encontrado, para teste rápido.")
+    parser.add_argument("--from", dest="from_condicao", type=str, default=None,
+                         help="Inclui na comparação só as condições a partir desta, inclusive (ex.: "
+                              "--from T3 usa T3, T4, T5... e ignora T1/T2). Extrai o número do padrão "
+                              "T<N> no nome da condição; nomes fora desse padrão nunca são descartados.")
     parser.add_argument("--metadados-condicoes", type=str, default=None,
                          help="Caminho de um CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,"
                               "reducao_cavidade) — ver formato no README. Se omitido, o eixo Y usa o "
@@ -301,6 +306,10 @@ def main():
 
     for sensor in lista_sensores:
         condicoes_disponiveis = sorted(sensores[sensor].keys())
+        condicoes_disponiveis = filtrar_desde_condicao(condicoes_disponiveis, args.from_condicao)
+        if args.from_condicao and not condicoes_disponiveis:
+            print(f"   ℹ️ Sensor [{sensor}]: nenhuma condição >= {args.from_condicao}, pulando sensor.")
+            continue
         print(f"\n📖 Sensor: [{sensor}]  ←  {len(condicoes_disponiveis)} condição(ões): {condicoes_disponiveis}")
 
         # --- decide o modo do eixo Y para ESTE sensor (tudo ou nada, ver README) ---
@@ -485,6 +494,7 @@ def main():
         "f2_hz": args.f2,
         "sobrepor_picos": not args.sem_picos,
         "quick": args.quick,
+        "from_condicao": args.from_condicao,
         "tipos_de_sensor_processados": sensores_ok,
         "tipos_de_sensor_com_aviso": sensores_com_erro,
     }, pastas_alteradas=pastas_alteradas)

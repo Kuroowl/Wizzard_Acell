@@ -91,7 +91,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              metadados_condicoes: str = None, metadados_canais: str = None,
              escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
-             sem_picos: bool = False) -> bool:
+             sem_picos: bool = False, from_condicao: str = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -104,6 +104,9 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.append("--quick")
         else:
             print(f"   ℹ️ {script_name} ainda não implementa --quick; rodando normalmente.")
+    if from_condicao:
+        # Todas as etapas (01-06) já suportam --from.
+        cmd.extend(["--from", from_condicao])
     if script_name in STEPS_SUPORTAM_FS:
         if fs is not None:
             cmd.extend(["--fs", str(fs)])
@@ -167,12 +170,15 @@ def main():
     parser = argparse.ArgumentParser(description="Wizzard Acell - Pipeline de Análise")
     parser.add_argument("data_dir", nargs="?", default=None,
                          help="Pasta raiz dos dados. Se omitida, abre o seletor de pasta.")
-    parser.add_argument("--start", "--from", dest="start", default=None,
+    parser.add_argument("--start", dest="start", default=None,
                          help="Etapa inicial: número (ex.: 2) ou nome (ex.: 02_preprocessamento).")
     parser.add_argument("--end", "--to", dest="end", default=None,
                          help="Etapa final (inclusive): número ou nome. Padrão: última etapa.")
     parser.add_argument("--quick", action="store_true",
                          help="Propaga --quick para as etapas que suportam teste rápido (só o 1º grupo/pasta).")
+    parser.add_argument("--from", dest="from_condicao", type=str, default=None,
+                         help="Retoma o pipeline a partir desta condição, inclusive (ex.: --start 02 --from T3 "
+                              "processa T3, T4, T5... e pula T1/T2). Propagado para todas as etapas (01-06).")
     parser.add_argument("--fs", type=float, default=None,
                          help="Taxa de amostragem (Hz) de fallback, propagada para as etapas que usam esse parâmetro.")
     parser.add_argument("--fs-acl", type=float, default=None,
@@ -263,7 +269,7 @@ def main():
                             metadados_canais=args.metadados_canais,
                             escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
-                            sem_picos=args.sem_picos)
+                            sem_picos=args.sem_picos, from_condicao=args.from_condicao)
         if not success:
             break
     else:

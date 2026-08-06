@@ -22,6 +22,7 @@ listar_grupos = _pipeline_io.listar_grupos
 carregar_grupo = _pipeline_io.carregar_grupo
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
+filtrar_desde_condicao = _pipeline_io.filtrar_desde_condicao
 
 _estilo = _carregar_modulo("estilo_grafico", "estilo_grafico.py")
 My_axis = _estilo.My_axis
@@ -70,6 +71,10 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--quick", action="store_true",
                          help="Processa (e plota) apenas o primeiro grupo sensor/condicao, para teste rápido.")
+    parser.add_argument("--from", dest="from_condicao", type=str, default=None,
+                         help="Retoma a etapa a partir desta condição, inclusive (ex.: --from T3 processa "
+                              "T3, T4, T5... e pula T1/T2). Extrai o número do padrão T<N> no nome da "
+                              "condição; nomes fora desse padrão nunca são descartados.")
     parser.add_argument("--fs-acl", type=float, default=30000.0,
                          help="Taxa de amostragem (Hz) dos sensores ACL (padrão: 30000.0).")
     parser.add_argument("--fs-pzt", type=float, default=12500.0,
@@ -118,6 +123,29 @@ def main():
     if args.quick:
         grupos = grupos[:1]
         print("⚡ Modo rápido (--quick): processando apenas o primeiro grupo.\n")
+
+    grupos = filtrar_desde_condicao(grupos, args.from_condicao, indice_condicao=1)
+    if args.from_condicao:
+        print(f"⏩ Retomando a partir de {args.from_condicao} (--from): {len(grupos)} grupo(s) a processar.\n")
+        if not grupos:
+            print(f"❌ Nenhum grupo com condição >= {args.from_condicao} encontrado. Nada a fazer.")
+            exit(1)
+
+    # --- aviso de resolução espectral: com nperseg fixo, um fs alto (típico
+    # de acelerômetro) pode deixar poucos pontos na faixa 'low' (0-f1), o que
+    # aparece no gráfico como uma linha quase reta/contínua em vez de um
+    # espectro resolvido — ver discussão no README. ---
+    MIN_PONTOS_RECOMENDADO_LOW = 20
+    for sensor_chk, fs_chk in fs_por_sensor.items():
+        df_hz = fs_chk / args.nperseg
+        pontos_low = args.f1 / df_hz if df_hz > 0 else 0
+        if pontos_low < MIN_PONTOS_RECOMENDADO_LOW:
+            print(f"⚠️ Resolução espectral em '{sensor_chk}': df={df_hz:.2f} Hz com --nperseg {args.nperseg} "
+                  f"(fs={fs_chk:.0f} Hz) → só ~{pontos_low:.1f} ponto(s) entre 0 e {args.f1:.0f} Hz. "
+                  f"A faixa 'low' pode aparecer como uma linha quase reta (poucos pontos pra desenhar a "
+                  f"forma real do espectro). Para melhorar a resolução ali, aumente --nperseg (ex.: "
+                  f"{int(args.f1 / (fs_chk / (args.nperseg * 4))):d} dá ~4x mais pontos) — trade-off: "
+                  f"menos segmentos pra fazer a média do Welch, logo mais variância/ruído na estimativa.")
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
     output_dir = raiz_path / "DadosTratados" / "Etapas" / "FFT"
@@ -258,6 +286,7 @@ def main():
         "faixa_high_hz": f"{args.f2:.0f}-Nyquist",
         "salvar_figuras": args.salvar_figuras,
         "quick": args.quick,
+        "from_condicao": args.from_condicao,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
     }, pastas_alteradas=pastas_alteradas)
