@@ -146,12 +146,22 @@ de frequência usado para interpolar as condições, já que cada uma pode ter
 resolução espectral diferente), `--f1`/`--f2` (limites `low`/`mid`/`high`,
 mesma convenção das etapas 03/04).
 
-**Nota técnica**: quando o eixo Y é contínuo (`f_vfd_hz`), as figuras usam
-`pcolormesh` com as bordas calculadas a partir do espaçamento REAL entre
-condições — se T1=42.5Hz e T2=24Hz mas T3=23.9Hz, a banda entre T2/T3 fica
-visualmente estreita e a banda T1/T2 larga, refletindo a distância real
-entre elas (ao contrário de um `imshow` simples, que espaçaria as 3
-igualmente e mentiria sobre a proximidade real entre condições).
+**Nota técnica — eixo Y sempre com bandas de altura igual**: mesmo no modo
+contínuo (`f_vfd_hz` na etapa 05, `posicao_m` na etapa 06), o eixo Y usa
+posições uniformes (uma banda por condição/canal, todas do mesmo tamanho).
+Os valores reais (`42.5`, `31.5`, `24.0`...) viram só o RÓTULO de cada
+banda, não a posição em si — porque não são uma variável amostrada
+continuamente, são pontos discretos escolhidos no ensaio. Usar o valor real
+como posição faria bandas de tamanho desigual (proporcional ao espaçamento
+real entre eles) e empurraria os pontos das condições extremas pra beira
+do gráfico. Cada figura também traz uma linha branca sólida marcando a
+divisão entre bandas (nos major ticks do eixo Y) e uma linha branca sutil
+no centro de cada banda, lembrando que aquele ponto é um valor discreto —
+a altura da banda é só espaçamento visual, não uma faixa de valores. Nas
+linhas teóricas da etapa 05 (1X motor/shaft/cavidade), isso significa que
+elas são desenhadas como uma polilinha ligando os N pontos realmente
+ensaiados (com um marcador em cada), não uma curva contínua inventada
+entre eles.
 
 ---
 

@@ -85,9 +85,11 @@ def main():
                          help="Limite entre a faixa LOW e MID, em Hz (padrão: 15.0).")
     parser.add_argument("--f2", type=float, default=400.0,
                          help="Limite entre a faixa MID e HIGH, em Hz (padrão: 400.0).")
-    parser.add_argument("--nperseg", type=int, default=8192,
-                         help="Tamanho do segmento (nperseg) do scipy.signal.welch, em amostras (padrão: 8192). "
-                              "Se o sinal for menor, usa o tamanho do sinal inteiro (sem erro).")
+    parser.add_argument("--nperseg", type=int, default=65536,
+                         help="Tamanho do segmento (nperseg) do scipy.signal.welch, em amostras (padrão: "
+                              "65536). Com gravações de 2-5 min, isso dá boa resolução na faixa 'low' "
+                              "mantendo dezenas de segmentos pra média do Welch. Se o sinal for menor, "
+                              "usa o tamanho do sinal inteiro (sem erro).")
     parser.add_argument("--noverlap", type=int, default=None,
                          help="Sobreposição entre segmentos (noverlap) do welch, em amostras "
                               "(padrão: metade do nperseg efetivo, ou seja, 50%%).")
