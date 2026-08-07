@@ -277,3 +277,47 @@ ACL,Channel 3,15.0,Saída sistema
 **Outros parâmetros**: `--escala` (mesmas 6 opções da etapa 05, mas a
 referência agora é por CANAL/SENSOR em vez de por condição — padrão `db-global`),
 `--cmap`, `--freq-max`, `--f1`/`--f2`, `--sem-picos`.
+
+---
+
+## 🌊 Etapa 07 — Waterfall 3D
+
+Mesma pergunta da etapa 05 (como o espectro de um canal muda entre
+condições), mas em cascata 3D em vez de mapa de cor 2D: uma linha por
+condição, empilhada ao longo do eixo Y, cada uma na sua altura de
+amplitude (eixo Z).
+
+**Independência da etapa 05/06**: a etapa 07 lê direto de `Etapas/FFT`
+(saída da etapa 03) — **não** depende do heatmap (05) nem do mapa espacial
+(06), e nenhuma delas depende da 07. As três são irmãs, todas consumindo o
+mesmo insumo (etapa 03). Isso foi deliberado: dá pra rodar só `01→02→03→07`
+sem nunca rodar 05/06, ou mudar um parâmetro de uma sem precisar
+reprocessar as outras — mantém a vantagem de velocidade/independência que
+já existe entre as demais etapas do pipeline, em vez de encadear o
+waterfall depois do heatmap.
+
+Por canal, gera **4 figuras** (em vez das 3 da etapa 05): `low`, `mid`,
+`high` (mesmos limites `--f1`/`--f2` do resto do pipeline) **e `full`**
+(0 Hz até `--freq-max`, tudo numa figura só).
+
+```bash
+python Scripts/07_waterfall.py --data_dir <pasta> \
+    --escala db-global --cmap jet --elev 25 --azim -60
+```
+
+- `--escala`: as mesmas 6 opções da etapa 05 (`db-global`, `abs-global`,
+  `abs-condicao`, `pico-canal`, `rms-canal`, `db`) — mesma matemática,
+  documentada acima, aplicada ao eixo Z em vez da cor.
+- `--metadados-condicoes`: mesmo CSV/formato da etapa 05 (eixo Y contínuo
+  por `f_vfd_hz` quando disponível para todas as condições daquele
+  sensor). Sem linhas teóricas (1X/2X cavidade) — não implementadas em 3D
+  por enquanto.
+- `--cmap` (padrão `jet`, diferente do `viridis` da etapa 05 — visual
+  clássico de waterfall), `--elev`/`--azim`: ângulo da câmera 3D em graus
+  (padrão 25/-60).
+- Sem overlay de picos (etapa 04) por enquanto — só existe hoje no
+  heatmap 2D (05/06).
+
+Não salva nenhum parquet em `Etapas/` — é uma etapa puramente visual, sem
+nenhuma etapa posterior que dependa da sua saída (ao contrário da 04, cujos
+picos são reaproveitados pela 05/06).

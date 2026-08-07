@@ -16,13 +16,13 @@ PIPELINE_STEPS = [
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py"}
 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
-STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py"}
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py"}
 
 # Script que aceita --salvar-figuras (por padrão a etapa 03 não gera mais
 # figuras de FFT, já que a 04 gera o mesmo gráfico com os picos marcados)
@@ -41,8 +41,20 @@ STEPS_SUPORTAM_HEATMAP = {"05_heatmap.py"}
 STEPS_SUPORTAM_MAPA_ESPACIAL = {"06_mapa_espacial.py"}
 STEPS_SUPORTAM_CALIBRACAO = {"02_preprocessamento.py"}
 
-# Parâmetros de escala/aparência compartilhados pelas etapas 05 e 06
+# Script do waterfall 3D (etapa 07) — lê direto de Etapas/FFT, independente
+# do heatmap (05)/mapa espacial (06); só precisa da etapa 03 já ter rodado.
+STEPS_SUPORTAM_WATERFALL = {"07_waterfall.py"}
+
+# --metadados-condicoes vale para qualquer etapa que monte eixo Y por
+# condição (heatmap 2D e waterfall 3D usam o mesmo CSV/formato).
+STEPS_SUPORTAM_METADADOS_CONDICOES = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_WATERFALL
+
+# --escala/--cmap/--freq-max/--freq-resolucao/--db-min: parâmetros de
+# escala espectral compartilhados por heatmap, mapa espacial e waterfall.
+# --sem-picos fica de fora (só existe overlay de picos no heatmap 2D/mapa
+# espacial; no waterfall 3D ainda não há esse overlay).
 STEPS_SUPORTAM_ESCALA_MAPA = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_MAPA_ESPACIAL
+STEPS_SUPORTAM_ESCALA_ESPECTRAL = STEPS_SUPORTAM_ESCALA_MAPA | STEPS_SUPORTAM_WATERFALL
 
 
 def selecionar_pasta_windows() -> str:
@@ -94,7 +106,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
              sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
-             grupo_alvo: str = None) -> bool:
+             grupo_alvo: str = None, elev: float = None, azim: float = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -152,13 +164,13 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--min-dist-pzt", str(min_dist_pzt)])
         if min_dist is not None:
             cmd.extend(["--min-dist", str(min_dist)])
-    if script_name in STEPS_SUPORTAM_HEATMAP and metadados_condicoes is not None:
+    if script_name in STEPS_SUPORTAM_METADADOS_CONDICOES and metadados_condicoes is not None:
         cmd.extend(["--metadados-condicoes", metadados_condicoes])
     if script_name in STEPS_SUPORTAM_MAPA_ESPACIAL and metadados_canais is not None:
         cmd.extend(["--metadados-canais", metadados_canais])
     if script_name in STEPS_SUPORTAM_CALIBRACAO and metadados_calibracao is not None:
         cmd.extend(["--metadados-calibracao", metadados_calibracao])
-    if script_name in STEPS_SUPORTAM_ESCALA_MAPA:
+    if script_name in STEPS_SUPORTAM_ESCALA_ESPECTRAL:
         if escala is not None:
             cmd.extend(["--escala", escala])
         if cmap is not None:
@@ -169,8 +181,13 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--freq-resolucao", str(freq_resolucao)])
         if db_min is not None:
             cmd.extend(["--db-min", str(db_min)])
-        if sem_picos:
+        if sem_picos and script_name in STEPS_SUPORTAM_ESCALA_MAPA:
             cmd.append("--sem-picos")
+    if script_name in STEPS_SUPORTAM_WATERFALL:
+        if elev is not None:
+            cmd.extend(["--elev", str(elev)])
+        if azim is not None:
+            cmd.extend(["--azim", str(azim)])
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -243,17 +260,24 @@ def main():
                               "automaticamente um 'calibracao.csv' na raiz de --data_dir.")
     parser.add_argument("--escala", type=str, default=None,
                          choices=["db-global", "abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
-                         help="Escala de cor do heatmap da etapa 05 e do mapa espacial da etapa 06 (padrão do script: db-global).")
+                         help="Escala de cor/eixo Z compartilhada pelas etapas 05 (heatmap), 06 (mapa "
+                              "espacial) e 07 (waterfall) (padrão do script: db-global).")
     parser.add_argument("--db-min", type=float, default=None,
-                         help="Piso (dB) do heatmap quando --escala db (padrão do script: -40.0).")
+                         help="Piso (dB) quando --escala db ou db-global (padrão do script: -40.0).")
     parser.add_argument("--cmap", type=str, default=None,
-                         help="Colormap do matplotlib para o heatmap da etapa 05 (padrão do script: viridis).")
+                         help="Colormap do matplotlib para as etapas 05/06/07 (padrão de cada script: "
+                              "viridis no heatmap/mapa espacial, jet no waterfall).")
     parser.add_argument("--freq-max", type=float, default=None,
-                         help="Frequência máxima (Hz) da faixa 'high' do heatmap da etapa 05 (padrão do script: automático).")
+                         help="Frequência máxima (Hz) da faixa 'high'/'full' nas etapas 05/06/07 (padrão do script: automático).")
     parser.add_argument("--freq-resolucao", type=float, default=None,
-                         help="Resolução (Hz) do grid de frequência do heatmap da etapa 05 (padrão do script: 0.5).")
+                         help="Resolução (Hz) do grid de frequência nas etapas 05/06/07 (padrão do script: 0.5).")
     parser.add_argument("--sem-picos", action="store_true",
-                         help="Não sobrepõe os picos (Etapas/Picos) no heatmap da etapa 05.")
+                         help="Não sobrepõe os picos (Etapas/Picos) no heatmap da etapa 05/06 (a etapa 07 "
+                              "ainda não tem esse overlay).")
+    parser.add_argument("--elev", type=float, default=None,
+                         help="Elevação (graus) da câmera 3D do waterfall (etapa 07; padrão do script: 25.0).")
+    parser.add_argument("--azim", type=float, default=None,
+                         help="Azimute (graus) da câmera 3D do waterfall (etapa 07; padrão do script: -60.0).")
     args = parser.parse_args()
 
     if args.ler_todos and args.grupo_alvo:
@@ -302,7 +326,8 @@ def main():
                             escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
                             sem_picos=args.sem_picos, from_condicao=args.from_condicao,
-                            ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo)
+                            ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo,
+                            elev=args.elev, azim=args.azim)
         if not success:
             break
     else:
