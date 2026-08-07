@@ -124,10 +124,6 @@ def main():
     parser.add_argument("--freq-resolucao", type=float, default=0.5,
                          help="Resolução (Hz) do grid comum de frequência usado para interpolar as "
                               "condições (padrão: 0.5).")
-    parser.add_argument("--f1", type=float, default=15.0,
-                         help="Limite low/mid (Hz) (padrão: 15.0).")
-    parser.add_argument("--f2", type=float, default=400.0,
-                         help="Limite mid/high (Hz) (padrão: 400.0).")
     parser.add_argument("--elev", type=float, default=25.0,
                          help="Elevação (graus) da câmera 3D (padrão: 25.0).")
     parser.add_argument("--azim", type=float, default=-60.0,
@@ -265,35 +261,17 @@ def main():
             matrix_raw = construir_matriz(condicoes_com_dado, espectros, freq_grid)
             nome_canal_arquivo = sanitizar_nome(canal)
 
-            # 4 figuras por canal: low/mid/high (mesmos limites f1/f2 do
-            # resto do pipeline) + full (0 até freq_max, tudo considerado)
-            faixas = [
-                (0.0, args.f1, "low"),
-                (args.f1, args.f2, "mid"),
-                (args.f2, freq_max, "high"),
-                (0.0, freq_max, "full"),
-            ]
+            matrix_plot, _v_min, _v_max, label_z = converter_escala(matrix_raw, args.escala, args.db_min)
 
-            for f_min, f_max, rotulo_faixa in faixas:
-                mascara_freq = (freq_grid >= f_min) & (freq_grid <= f_max)
-                if not mascara_freq.any():
-                    print(f"      ⚠️ Canal {canal} | faixa {rotulo_faixa}: sem dado nessa faixa, pulando figura.")
-                    continue
+            titulo = f"Waterfall - {sensor} | {canal} | 0-{freq_max:.0f} Hz"
+            nome_figura = f"waterfall_{nome_canal_arquivo}_0-{freq_max:.0f}hz.png"
+            caminho_figura = pasta_figuras / nome_figura
 
-                freq_grid_faixa = freq_grid[mascara_freq]
-                matrix_plot, _v_min, _v_max, label_z = converter_escala(
-                    matrix_raw[:, mascara_freq], args.escala, args.db_min
-                )
-
-                titulo = f"Waterfall ({rotulo_faixa}) - {sensor} | {canal} | {f_min:.0f}-{f_max:.0f} Hz"
-                nome_figura = f"waterfall_{nome_canal_arquivo}_{rotulo_faixa}_{f_min:.0f}-{f_max:.0f}hz.png"
-                caminho_figura = pasta_figuras / nome_figura
-
-                plotar_waterfall(
-                    matrix_plot, freq_grid_faixa, valores_y_canal, rotulos_y_canal,
-                    titulo, rotulo_eixo_y, label_z, args.cmap, args.elev, args.azim, caminho_figura,
-                )
-                print(f"      🖼️ Figura salva: Figuras/{sensor}/Waterfall/{nome_figura}")
+            plotar_waterfall(
+                matrix_plot, freq_grid, valores_y_canal, rotulos_y_canal,
+                titulo, rotulo_eixo_y, label_z, args.cmap, args.elev, args.azim, caminho_figura,
+            )
+            print(f"      🖼️ Figura salva: Figuras/{sensor}/Waterfall/{nome_figura}")
 
         sensores_ok += 1
         if houve_erro_no_sensor:
@@ -307,11 +285,8 @@ def main():
         "cmap": args.cmap,
         "freq_max": args.freq_max,
         "freq_resolucao_hz": args.freq_resolucao,
-        "f1_hz": args.f1,
-        "f2_hz": args.f2,
         "elev": args.elev,
         "azim": args.azim,
-        "faixas_geradas": ["low", "mid", "high", "full"],
         "quick": args.quick,
         "from_condicao": args.from_condicao,
         "tipos_de_sensor_processados": sensores_ok,

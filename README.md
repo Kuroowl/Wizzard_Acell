@@ -296,13 +296,13 @@ reprocessar as outras — mantém a vantagem de velocidade/independência que
 já existe entre as demais etapas do pipeline, em vez de encadear o
 waterfall depois do heatmap.
 
-Por canal, gera **4 figuras** (em vez das 3 da etapa 05): `low`, `mid`,
-`high` (mesmos limites `--f1`/`--f2` do resto do pipeline) **e `full`**
-(0 Hz até `--freq-max`, tudo numa figura só).
+Sem subdivisão por faixa (diferente da etapa 05) — **uma figura por canal**,
+espectro inteiro. Use `--freq-max` (e, se quiser, comece do zero mesmo) pra
+restringir a uma faixa específica em vez de plotar tudo.
 
 ```bash
 python Scripts/07_waterfall.py --data_dir <pasta> \
-    --escala db-global --cmap jet --elev 25 --azim -60
+    --escala db-global --cmap jet --elev 25 --azim -60 --freq-max 300
 ```
 
 - `--escala`: as mesmas 6 opções da etapa 05 (`db-global`, `abs-global`,
@@ -312,6 +312,8 @@ python Scripts/07_waterfall.py --data_dir <pasta> \
   por `f_vfd_hz` quando disponível para todas as condições daquele
   sensor). Sem linhas teóricas (1X/2X cavidade) — não implementadas em 3D
   por enquanto.
+- `--freq-max`: frequência máxima (Hz) plotada. Padrão: a menor frequência
+  máxima entre as condições daquele sensor/canal (evita extrapolar).
 - `--cmap` (padrão `jet`, diferente do `viridis` da etapa 05 — visual
   clássico de waterfall), `--elev`/`--azim`: ângulo da câmera 3D em graus
   (padrão 25/-60).
@@ -335,25 +337,26 @@ operação específicos".
 recalcula pico nem FFT, não depende de 05/06/07. Dá pra rodar só
 `01→02→03→04→08`.
 
-**Método**: empilha (pool) os picos já identificados pela etapa 04 de
-**todas as condições** de um sensor/canal num histograma só, separado por
-faixa (`low`/`mid`/`high`/`full` — `full` usa os picos de escopo `global`
-da etapa 04, busca no espectro inteiro). Um pico que cai sempre no mesmo
-bin (mesma frequência, em toda condição) vira uma barra alta e estreita —
-assinatura de algo **fixo na máquina** (ressonância estrutural, defeito de
-rolamento, folga mecânica). Um pico que se desloca com a condição (ex.: a
-própria frequência do VFD) cai em bins diferentes a cada condição e se
-espalha no histograma agregado — assinatura de algo ligado ao **ponto de
-operação** (hidráulico/VFD), não à máquina em si.
+**Método**: empilha (pool) os picos que a etapa 04 já identificou buscando
+no **espectro inteiro** (escopo `global`, sem recorte de faixa) de
+**todas as condições** de um sensor/canal, num histograma só. Um pico que
+cai sempre no mesmo bin (mesma frequência, em toda condição) vira uma
+barra alta e estreita — assinatura de algo **fixo na máquina** (ressonância
+estrutural, defeito de rolamento, folga mecânica). Um pico que se desloca
+com a condição (ex.: a própria frequência do VFD) cai em bins diferentes a
+cada condição e se espalha no histograma agregado — assinatura de algo
+ligado ao **ponto de operação** (hidráulico/VFD), não à máquina em si.
 
 ```bash
 python Scripts/08_histograma.py --data_dir <pasta> --n-bins 60
 ```
 
-- `--n-bins`: número de bins POR FIGURA (padrão 60). Cada faixa (low/mid/
-  high/full) tem sua própria largura de bin, calculada a partir do
-  intervalo real dos dados daquela faixa — assim todas ficam com resolução
-  visual comparável, mesmo tendo larguras muito diferentes.
+- `--n-bins`: número de bins do histograma (padrão 60), largura calculada
+  a partir do intervalo real dos dados (ou de `--freq-min`/`--freq-max`,
+  se informados).
+- `--freq-min`/`--freq-max`: restringe o histograma a uma faixa específica
+  em vez do espectro inteiro. Padrão: sem recorte (usa todo o intervalo
+  dos picos encontrados).
 - `--peso-amplitude`: por padrão, o histograma é por **contagem** (quantas
   condições tiveram um pico naquele bin — igual ao protótipo original,
   `src/histogram_and_picosdetector.py`). Com esta flag, soma a amplitude

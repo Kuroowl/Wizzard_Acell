@@ -23,7 +23,7 @@ STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", 
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
-STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py"}
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py"}
 
 # Script que aceita --salvar-figuras (por padrão a etapa 03 não gera mais
 # figuras de FFT, já que a 04 gera o mesmo gráfico com os picos marcados)
@@ -112,7 +112,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
              sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
              grupo_alvo: str = None, elev: float = None, azim: float = None,
-             n_bins: int = None, peso_amplitude: bool = False) -> bool:
+             n_bins: int = None, peso_amplitude: bool = False, freq_min: float = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -197,6 +197,10 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
     if script_name in STEPS_SUPORTAM_HISTOGRAMA:
         if n_bins is not None:
             cmd.extend(["--n-bins", str(n_bins)])
+        if freq_min is not None:
+            cmd.extend(["--freq-min", str(freq_min)])
+        if freq_max is not None:
+            cmd.extend(["--freq-max", str(freq_max)])
         if peso_amplitude:
             cmd.append("--peso-amplitude")
 
@@ -279,7 +283,11 @@ def main():
                          help="Colormap do matplotlib para as etapas 05/06/07 (padrão de cada script: "
                               "viridis no heatmap/mapa espacial, jet no waterfall).")
     parser.add_argument("--freq-max", type=float, default=None,
-                         help="Frequência máxima (Hz) da faixa 'high'/'full' nas etapas 05/06/07 (padrão do script: automático).")
+                         help="Frequência máxima (Hz) nas etapas 05/06/07 (padrão do script: automático) "
+                              "e limite superior opcional do histograma da etapa 08.")
+    parser.add_argument("--freq-min", type=float, default=None,
+                         help="Limite inferior opcional (Hz) do histograma da etapa 08. Padrão do script: "
+                              "sem recorte (usa todo o intervalo dos picos encontrados).")
     parser.add_argument("--freq-resolucao", type=float, default=None,
                          help="Resolução (Hz) do grid de frequência nas etapas 05/06/07 (padrão do script: 0.5).")
     parser.add_argument("--sem-picos", action="store_true",
@@ -343,7 +351,7 @@ def main():
                             sem_picos=args.sem_picos, from_condicao=args.from_condicao,
                             ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo,
                             elev=args.elev, azim=args.azim,
-                            n_bins=args.n_bins, peso_amplitude=args.peso_amplitude)
+                            n_bins=args.n_bins, peso_amplitude=args.peso_amplitude, freq_min=args.freq_min)
         if not success:
             break
     else:
