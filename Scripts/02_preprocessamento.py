@@ -24,6 +24,8 @@ filtrar_desde_condicao = _pipeline_io.filtrar_desde_condicao
 carregar_grupo = _pipeline_io.carregar_grupo
 salvar_grupo = _pipeline_io.salvar_grupo
 registrar_log = _pipeline_io.registrar_log
+ler_metadados_calibracao = _pipeline_io.ler_metadados_calibracao
+buscar_fator_calibracao = _pipeline_io.buscar_fator_calibracao
 
 _estilo = _carregar_modulo("estilo_grafico", "estilo_grafico.py")
 My_axis = _estilo.My_axis
@@ -128,6 +130,14 @@ def main():
                          help="Taxa de amostragem (Hz) dos sensores PZT (padrão: 12500.0).")
     parser.add_argument("--fs", type=float, default=None,
                          help="Taxa de amostragem (Hz) para qualquer sensor fora do mapeamento ACL/PZT (fallback).")
+    parser.add_argument("--metadados-calibracao", type=str, default=None,
+                         help="Caminho de um CSV opcional (sensor,canal,condicao,sensibilidade_mv_por_unidade,"
+                              "ganho,unidade_saida) para converter o sinal BRUTO (mV, como já é lido do "
+                              "arquivo de origem) em unidade física (ex.: g), ANTES de qualquer outro "
+                              "tratamento. Se omitido, procura automaticamente um 'calibracao.csv' na raiz "
+                              "de --data_dir. Canais sem entrada no CSV continuam em mV brutos (sem "
+                              "conversão) — ver README para o formato e por que isso importa quando há "
+                              "sensores/ganhos diferentes entre canais.")
     args = parser.parse_args()
 
     fs_por_sensor = {"ACL": args.fs_acl, "PZT": args.fs_pzt}
@@ -164,6 +174,32 @@ def main():
 
     pasta_figuras_raiz = raiz_path / "DadosTratados" / "Figuras"
     output_dir = raiz_path / "DadosTratados" / "Etapas" / "Preprocessamento"
+
+    # --- Calibração opcional (V bruto -> unidade física) ------------------
+    metadados_calibracao = {}
+    caminho_calibracao = None
+    if args.metadados_calibracao:
+        caminho_calibracao = Path(args.metadados_calibracao)
+    else:
+        candidato = raiz_path / "calibracao.csv"
+        if candidato.exists():
+            caminho_calibracao = candidato
+            print(f"📋 Encontrado calibracao.csv na pasta base, usando automaticamente: {candidato.resolve()}")
+
+    if caminho_calibracao:
+        try:
+            metadados_calibracao = ler_metadados_calibracao(caminho_calibracao)
+            print(f"📋 Calibração carregada: {caminho_calibracao.resolve()} ({len(metadados_calibracao)} entrada(s))")
+        except Exception as e:
+            print(f"⚠️ Não foi possível ler {caminho_calibracao} ({e}). Seguindo SEM calibração (sinal em Volts brutos).")
+            metadados_calibracao = {}
+    else:
+        print("⚠️ Nenhum calibracao.csv encontrado — sinal será mantido em mV BRUTOS (sem conversão de "
+              "sensibilidade/ganho). Comparações de amplitude absoluta entre condições só são válidas se "
+              "TODOS os canais usarem o mesmo sensor e o mesmo ganho no condicionador. Ver README.")
+
+    canais_calibrados = set()   # (sensor, canal) que tiveram fator aplicado em pelo menos 1 grupo
+    canais_sem_calibracao = set()  # (sensor, canal) que ficaram em Volts brutos em pelo menos 1 grupo
 
     colunas_metadados = ["sensor", "condicao", "ordem_ensaio", "arquivo_origem"]
     grupos_ok, grupos_com_erro = 0, 0
@@ -204,6 +240,21 @@ def main():
             nome_canal_legivel = str(col_canal)
             nome_canal_arquivo = sanitizar_nome(col_canal)
 
+            # Calibração (V bruto -> unidade física), ANTES de qualquer outro
+            # tratamento — precisa vir primeiro porque é a etapa que dá
+            # significado físico à amplitude que todo o resto do pipeline
+            # (FFT, picos, heatmaps) vai comparar entre condições.
+            fator_calibracao, unidade_saida = buscar_fator_calibracao(
+                metadados_calibracao, sensor, nome_canal_legivel, condicao
+            )
+            if fator_calibracao is not None:
+                sinal_bruto = sinal_bruto * fator_calibracao
+                unidade_canal = unidade_saida
+                canais_calibrados.add((str(sensor), nome_canal_legivel))
+            else:
+                unidade_canal = "mV (bruto)"
+                canais_sem_calibracao.add((str(sensor), nome_canal_legivel))
+
             try:
                 sinal_tratado = pipeline_preprocessamento(sinal_bruto, nome_canal=nome_canal_legivel)
             except Exception as e:
@@ -234,7 +285,7 @@ def main():
                 setaxis=[
                     f"Time Series - {sensor} | {condicao} | {nome_canal_legivel}\n",
                     "Time (s)",
-                    "Amplitude"
+                    f"Amplitude ({unidade_canal})"
                 ]
             )
 
@@ -252,6 +303,15 @@ def main():
         if houve_erro_no_grupo:
             grupos_com_erro += 1
 
+    if canais_calibrados and canais_sem_calibracao:
+        print("\n⚠️ ATENÇÃO: alguns canais foram calibrados (unidade física) e outros ficaram em mV "
+              "brutos NO MESMO CONJUNTO DE DADOS. Comparações de amplitude absoluta entre esses "
+              "canais/condições NÃO são válidas até completar o calibracao.csv para todos eles.")
+        print(f"   ✅ Calibrados: {sorted(canais_calibrados)}")
+        print(f"   ⚠️ Sem calibração (mV bruto): {sorted(canais_sem_calibracao)}")
+    elif canais_calibrados:
+        print(f"\n✅ Todos os canais processados foram calibrados: {sorted(canais_calibrados)}")
+
     caminho_log = registrar_log(raiz_path, "02_preprocessamento", {
         "data_dir": raiz_path.resolve(),
         "fs_acl_hz": args.fs_acl,
@@ -262,6 +322,9 @@ def main():
         "from_condicao": args.from_condicao,
         "grupos_processados": grupos_ok,
         "grupos_com_aviso": grupos_com_erro,
+        "metadados_calibracao": str(caminho_calibracao.resolve()) if caminho_calibracao else None,
+        "canais_calibrados": sorted(f"{s}/{c}" for s, c in canais_calibrados),
+        "canais_sem_calibracao_mv_bruto": sorted(f"{s}/{c}" for s, c in canais_sem_calibracao),
     }, pastas_alteradas=pastas_alteradas)
 
     print("\n" + "=" * 65)

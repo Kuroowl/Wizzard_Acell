@@ -18,6 +18,61 @@ contagem de canais — texto corrigido, sem mudança de comportamento.
 
 ---
 
+## ⚖️ Calibração (mV bruto → unidade física)
+
+O pipeline lê o sinal bruto **em mV**, exatamente como sai do arquivo de
+origem (sem nenhuma conversão de unidade). Isso só é seguro comparar entre
+condições/canais se **todos** usarem o mesmo modelo de sensor (mesma
+sensibilidade, em mV por unidade física) e o mesmo ganho no condicionador.
+Na prática isso pode não ser verdade — dois modelos de acelerômetro podem
+ter sensibilidades bem diferentes (ex.: 100 mV/g vs. 1000 mV/g), e o
+condicionador de sinal pode ter ganho configurável por canal (x1/x10/x100).
+Sem correção, comparar amplitude bruta entre canais/condições que usaram
+sensor ou ganho diferentes dá um resultado sem sentido físico, mesmo que o
+número em mV pareça "maior" ou "menor".
+
+**Antes de confiar em qualquer comparação absoluta de amplitude** (série
+temporal, `--escala abs-global`/`db-global` nos heatmaps), confirme com
+quem fez a aquisição:
+- Qual o modelo/sensibilidade (mV/g ou mV por unidade) de cada sensor físico
+  (canal), e se isso é uniforme entre todos os canais/condições.
+- Qual o ganho do condicionador usado em cada canal — e se ele mudou entre
+  condições/ensaios (comum quando a amplitude esperada varia bastante).
+- Se essa informação está registrada em algum lugar (planilha de ensaio,
+  configuração do software de aquisição, etc.).
+
+**Etapa 02 (`02_preprocessamento.py`)** aplica a correção automaticamente
+se você fornecer um CSV opcional — `--metadados-calibracao caminho.csv`
+(ou, se omitido, um arquivo `calibracao.csv` direto na raiz de
+`--data_dir`, se existir):
+
+```
+sensor,canal,condicao,sensibilidade_mv_por_unidade,ganho,unidade_saida
+ACL,Channel 0,,100,1,g
+ACL,Channel 1,,1000,10,g
+```
+
+- `condicao` vazio vale para **todas** as condições daquele sensor/canal;
+  só preencha uma condição específica se o ganho mudou durante o ensaio
+  (nesse caso, uma linha por condição em que o ganho for diferente).
+- Canais sem entrada no CSV continuam em mV bruto (nenhuma quebra de
+  compatibilidade — sem `calibracao.csv`, o pipeline se comporta
+  exatamente como antes desta funcionalidade existir).
+- Se **parte** dos canais tiver calibração e parte não, a etapa 02 avisa
+  explicitamente no console e no log — misturar unidade física com mV
+  bruto no mesmo conjunto de dados invalida comparações absolutas entre
+  eles.
+- A calibração é aplicada uma única vez, no início da etapa 02, antes de
+  qualquer outro tratamento (remoção de offset DC, etc.). As etapas 03-06
+  (FFT, picos, heatmaps) recebem o sinal já na unidade física e não sabem
+  (nem precisam saber) que uma calibração aconteceu. Os rótulos de eixo
+  dessas etapas continuam genéricos ("Amplitude") de propósito — nas
+  escalas já normalizadas (`pico-canal`, `rms-canal`, `db`/`db-global`
+  relativos), a unidade física não muda a leitura do gráfico, então não
+  faz sentido rotular como "g" ali.
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```text

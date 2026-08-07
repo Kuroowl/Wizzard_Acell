@@ -39,6 +39,7 @@ STEPS_SUPORTAM_HEATMAP = {"05_heatmap.py"}
 
 # Script que aceita os parâmetros do mapa espacial (entre sensores/canais)
 STEPS_SUPORTAM_MAPA_ESPACIAL = {"06_mapa_espacial.py"}
+STEPS_SUPORTAM_CALIBRACAO = {"02_preprocessamento.py"}
 
 # Parâmetros de escala/aparência compartilhados pelas etapas 05 e 06
 STEPS_SUPORTAM_ESCALA_MAPA = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_MAPA_ESPACIAL
@@ -89,6 +90,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              min_dist_acl: float = None, min_dist_pzt: float = None, min_dist: float = None,
              nperseg: int = None, noverlap: int = None, janela: str = None,
              metadados_condicoes: str = None, metadados_canais: str = None,
+             metadados_calibracao: str = None,
              escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
              sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
@@ -154,6 +156,8 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
         cmd.extend(["--metadados-condicoes", metadados_condicoes])
     if script_name in STEPS_SUPORTAM_MAPA_ESPACIAL and metadados_canais is not None:
         cmd.extend(["--metadados-canais", metadados_canais])
+    if script_name in STEPS_SUPORTAM_CALIBRACAO and metadados_calibracao is not None:
+        cmd.extend(["--metadados-calibracao", metadados_calibracao])
     if script_name in STEPS_SUPORTAM_ESCALA_MAPA:
         if escala is not None:
             cmd.extend(["--escala", escala])
@@ -232,6 +236,11 @@ def main():
     parser.add_argument("--metadados-canais", type=str, default=None,
                          help="CSV opcional (sensor,canal,posicao_m,rotulo) para a etapa 06 usar posição "
                               "física no eixo Y do mapa espacial.")
+    parser.add_argument("--metadados-calibracao", type=str, default=None,
+                         help="CSV opcional (sensor,canal,condicao,sensibilidade_mv_por_unidade,ganho,"
+                              "unidade_saida) para a etapa 02 converter o sinal bruto (mV) em unidade "
+                              "física (ex.: g) antes de qualquer outro tratamento. Se omitido, procura "
+                              "automaticamente um 'calibracao.csv' na raiz de --data_dir.")
     parser.add_argument("--escala", type=str, default=None,
                          choices=["db-global", "abs-global", "abs-condicao", "pico-canal", "rms-canal", "db"],
                          help="Escala de cor do heatmap da etapa 05 e do mapa espacial da etapa 06 (padrão do script: db-global).")
@@ -289,6 +298,7 @@ def main():
                             min_dist=args.min_dist, nperseg=args.nperseg, noverlap=args.noverlap,
                             janela=args.janela, metadados_condicoes=args.metadados_condicoes,
                             metadados_canais=args.metadados_canais,
+                            metadados_calibracao=args.metadados_calibracao,
                             escala=args.escala, cmap=args.cmap, freq_max=args.freq_max,
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
                             sem_picos=args.sem_picos, from_condicao=args.from_condicao,

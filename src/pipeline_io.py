@@ -13,6 +13,7 @@ from pathlib import Path
 from datetime import datetime
 import getpass
 import re
+import csv
 import pandas as pd
 
 
@@ -96,6 +97,87 @@ def ordenar_arquivos_sequencialmente(pasta_base: Path, arquivos) -> list:
         return (extrair_numero_subgrupo(rel), rel.name.lower())
 
     return sorted(arquivos, key=chave)
+
+
+def ler_metadados_calibracao(caminho_csv: Path) -> dict:
+    """
+    Lê o CSV opcional de calibração por canal (converte o sinal BRUTO — em
+    mV, como já é lido pelo pipeline — para unidade física, usando a
+    sensibilidade do sensor e o ganho aplicado no condicionador):
+
+        sensor,canal,condicao,sensibilidade_mv_por_unidade,ganho,unidade_saida
+
+    - sensor: ACL, PZT, etc. (obrigatório)
+    - canal: nome exato da coluna no arquivo bruto, ex. 'Channel 0' (obrigatório)
+    - condicao: T<N> específico, ou vazio para valer em TODAS as condições
+      daquele sensor/canal (útil quando sensibilidade/ganho não mudam entre
+      condições — só preencha por condição se o ganho variou durante o
+      ensaio)
+    - sensibilidade_mv_por_unidade: sensibilidade do sensor, em mV por
+      unidade física (ex.: 100 para um acelerômetro de 100 mV/g)
+    - ganho: ganho aplicado no condicionador para esse canal (ex.: 1, 10, 100)
+    - unidade_saida: rótulo da unidade física resultante (ex.: 'g', 'm/s2') —
+      usado só para exibição/rótulo de eixo, não entra na conta.
+
+    Retorna: dict (sensor, canal, condicao) -> {"sensibilidade_mv_por_unidade":
+    float, "ganho": float, "unidade_saida": str}. Uma linha com condicao vazia
+    fica armazenada com chave (sensor, canal, "") — funciona como fallback
+    para todas as condições daquele sensor/canal que não tenham uma linha
+    mais específica no CSV.
+    """
+    metadados = {}
+    with open(caminho_csv, newline="", encoding="utf-8-sig") as f:
+        leitor = csv.DictReader(f)
+        colunas_esperadas = {"sensor", "canal", "condicao", "sensibilidade_mv_por_unidade", "ganho", "unidade_saida"}
+        if not colunas_esperadas.issubset(set(leitor.fieldnames or [])):
+            faltando = colunas_esperadas - set(leitor.fieldnames or [])
+            raise ValueError(f"CSV de calibração sem as colunas esperadas: {faltando}")
+
+        for linha in leitor:
+            sensor = (linha.get("sensor") or "").strip().upper()
+            canal = (linha.get("canal") or "").strip()
+            condicao = (linha.get("condicao") or "").strip().upper()
+            if not sensor or not canal:
+                continue
+            try:
+                sensibilidade = float((linha.get("sensibilidade_mv_por_unidade") or "").strip())
+                ganho = float((linha.get("ganho") or "").strip())
+            except ValueError:
+                raise ValueError(
+                    f"CSV de calibração: sensibilidade/ganho inválidos para {sensor}/{canal}/{condicao or '(todas)'}."
+                )
+            if sensibilidade <= 0 or ganho <= 0:
+                raise ValueError(
+                    f"CSV de calibração: sensibilidade e ganho devem ser > 0 ({sensor}/{canal}/{condicao or '(todas)'})."
+                )
+            metadados[(sensor, canal, condicao)] = {
+                "sensibilidade_mv_por_unidade": sensibilidade,
+                "ganho": ganho,
+                "unidade_saida": (linha.get("unidade_saida") or "").strip() or "un",
+            }
+    return metadados
+
+
+def buscar_fator_calibracao(metadados_calibracao: dict, sensor: str, canal: str, condicao: str):
+    """
+    Busca a entrada de calibração de (sensor, canal, condicao) — primeiro
+    tentando um match específico para essa condição, depois caindo para a
+    entrada genérica (condicao vazia no CSV, vale para todas).
+
+    Retorna (fator, unidade_saida) onde `fator` converte o sinal bruto (o
+    dado já lido do CSV, em mV) para a unidade física: fisico = bruto_mV *
+    fator. Retorna (None, None) se não houver calibração cadastrada para
+    esse sensor/canal.
+    """
+    sensor = str(sensor).strip().upper()
+    condicao = str(condicao).strip().upper()
+    info = metadados_calibracao.get((sensor, canal, condicao)) or metadados_calibracao.get((sensor, canal, ""))
+    if info is None:
+        return None, None
+    # mV_medido = ganho * sensibilidade_mV_por_unidade * valor_fisico
+    # => valor_fisico = mV_medido / (ganho * sensibilidade_mV_por_unidade)
+    fator = 1.0 / (info["ganho"] * info["sensibilidade_mv_por_unidade"])
+    return fator, info["unidade_saida"]
 
 
 def filtrar_desde_condicao(itens, condicao_minima, indice_condicao=None):
