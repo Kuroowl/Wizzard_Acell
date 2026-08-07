@@ -23,6 +23,11 @@ STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
+# Teto de frequência (Hz) por sensor — só na etapa 03 (onde a FFT é
+# calculada e truncada); propaga automaticamente pra 04-09 porque todas
+# leem de Etapas/FFT, já truncado.
+STEPS_SUPORTAM_FREQ_TETO = {"03_fft.py"}
+
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
 STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "09_rms_psd.py"}
 
@@ -118,7 +123,8 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
              sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
              grupo_alvo: str = None, elev: float = None, azim: float = None,
-             n_bins: int = None, peso_amplitude: bool = False, freq_min: float = None) -> bool:
+             n_bins: int = None, peso_amplitude: bool = False, freq_min: float = None,
+             freq_teto_acl: float = None, freq_teto_pzt: float = None, freq_teto: float = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -153,6 +159,13 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--fs-pzt", str(fs_pzt)])
     elif any(v is not None for v in (fs, fs_acl, fs_pzt)):
         print(f"   ℹ️ {script_name} ainda não implementa parâmetros de fs; ignorando.")
+    if script_name in STEPS_SUPORTAM_FREQ_TETO:
+        if freq_teto_acl is not None:
+            cmd.extend(["--freq-teto-acl", str(freq_teto_acl)])
+        if freq_teto_pzt is not None:
+            cmd.extend(["--freq-teto-pzt", str(freq_teto_pzt)])
+        if freq_teto is not None:
+            cmd.extend(["--freq-teto", str(freq_teto)])
     if script_name in STEPS_SUPORTAM_FAIXAS_FFT:
         if f1 is not None:
             cmd.extend(["--f1", str(f1)])
@@ -250,6 +263,14 @@ def main():
                          help="Taxa de amostragem (Hz) dos sensores ACL (padrão do script: 30000.0).")
     parser.add_argument("--fs-pzt", type=float, default=None,
                          help="Taxa de amostragem (Hz) dos sensores PZT (padrão do script: 12500.0).")
+    parser.add_argument("--freq-teto-acl", type=float, default=None,
+                         help="Teto de frequência (Hz) do espectro salvo para ACL na etapa 03 — acima "
+                              "disso a resposta do sensor não é confiável (ver datasheet). Propaga "
+                              "automaticamente pra 04-09. Use 0 para desligar. Padrão do script: 10000.0.")
+    parser.add_argument("--freq-teto-pzt", type=float, default=None,
+                         help="Mesma ideia de --freq-teto-acl, para PZT. Padrão do script: sem teto.")
+    parser.add_argument("--freq-teto", type=float, default=None,
+                         help="Teto de frequência (Hz) de fallback para sensores fora do mapeamento ACL/PZT.")
     parser.add_argument("--f1", type=float, default=None,
                          help="Limite entre faixa baixa e média da FFT, em Hz (etapas 03/04/05/06/09; padrão do script: 15.0).")
     parser.add_argument("--f2", type=float, default=None,
@@ -310,7 +331,7 @@ def main():
     parser.add_argument("--azim", type=float, default=None,
                          help="Azimute (graus) da câmera 3D do waterfall (etapa 07; padrão do script: -60.0).")
     parser.add_argument("--n-bins", type=int, default=None,
-                         help="Número de bins do histograma de picos agregados da etapa 08 (padrão do script: 60).")
+                         help="Número de bins do histograma de picos agregados da etapa 08 (padrão do script: 100).")
     parser.add_argument("--peso-amplitude", action="store_true",
                          help="Etapa 08: histograma por amplitude somada em vez de contagem de picos.")
     args = parser.parse_args()
@@ -363,7 +384,9 @@ def main():
                             sem_picos=args.sem_picos, from_condicao=args.from_condicao,
                             ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo,
                             elev=args.elev, azim=args.azim,
-                            n_bins=args.n_bins, peso_amplitude=args.peso_amplitude, freq_min=args.freq_min)
+                            n_bins=args.n_bins, peso_amplitude=args.peso_amplitude, freq_min=args.freq_min,
+                            freq_teto_acl=args.freq_teto_acl, freq_teto_pzt=args.freq_teto_pzt,
+                            freq_teto=args.freq_teto)
         if not success:
             break
     else:

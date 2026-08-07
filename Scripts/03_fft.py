@@ -81,6 +81,21 @@ def main():
                          help="Taxa de amostragem (Hz) dos sensores PZT (padrão: 12500.0).")
     parser.add_argument("--fs", type=float, default=None,
                          help="Taxa de amostragem (Hz) de fallback para sensores fora do mapeamento ACL/PZT.")
+    parser.add_argument("--freq-teto-acl", type=float, default=10000.0,
+                         help="Teto de frequência (Hz) do espectro salvo para sensores ACL — acima disso "
+                              "a resposta do sensor não é mais confiável (ex.: datasheet especifica "
+                              "'Frequency Range (±5%%) 2-10000 Hz'), então o espectro é truncado aqui antes "
+                              "de salvar em Etapas/FFT. Isso propaga automaticamente pra todas as etapas "
+                              "seguintes (picos, heatmap, mapa espacial, waterfall, histograma, RMS/PSD) — "
+                              "nenhuma delas precisa de ajuste próprio. Use 0 ou um valor negativo para "
+                              "desligar (usa Nyquist = fs/2 inteiro, sem truncar). Padrão: 10000.0.")
+    parser.add_argument("--freq-teto-pzt", type=float, default=None,
+                         help="Mesma ideia de --freq-teto-acl, mas para sensores PZT. Padrão: sem teto "
+                              "(usa Nyquist = fs/2 inteiro) — não há datasheet de PZT confirmando um "
+                              "limite; informe aqui se/quando houver.")
+    parser.add_argument("--freq-teto", type=float, default=None,
+                         help="Teto de frequência (Hz) de fallback para sensores fora do mapeamento "
+                              "ACL/PZT. Padrão: sem teto.")
     parser.add_argument("--f1", type=float, default=15.0,
                          help="Limite entre a faixa LOW e MID, em Hz (padrão: 15.0).")
     parser.add_argument("--f2", type=float, default=400.0,
@@ -102,6 +117,7 @@ def main():
     args = parser.parse_args()
 
     fs_por_sensor = {"ACL": args.fs_acl, "PZT": args.fs_pzt}
+    freq_teto_por_sensor = {"ACL": args.freq_teto_acl, "PZT": args.freq_teto_pzt}
 
     def obter_fs(sensor: str) -> float:
         fs_sensor = fs_por_sensor.get(str(sensor).upper())
@@ -111,6 +127,16 @@ def main():
             return args.fs
         print(f"   ⚠️ Sensor '{sensor}' sem fs mapeado e sem --fs de fallback; usando 1000.0 Hz.")
         return 1000.0
+
+    def obter_freq_teto(sensor: str):
+        """Retorna o teto de frequência (Hz) do sensor, ou None se não houver (sem truncar)."""
+        if str(sensor).upper() in freq_teto_por_sensor:
+            teto = freq_teto_por_sensor[str(sensor).upper()]
+        else:
+            teto = args.freq_teto
+        if teto is not None and teto <= 0:
+            return None
+        return teto
 
     raiz_path = Path(args.data_dir)
 
@@ -163,16 +189,19 @@ def main():
     for sensor, condicao, caminho_parquet in grupos:
         fs = obter_fs(sensor)
         nyquist = fs / 2.0
+        teto_sensor = obter_freq_teto(sensor)
+        nyquist_efetivo = min(nyquist, teto_sensor) if teto_sensor is not None else nyquist
 
-        # Faixas: low [0, f1], mid (f1, f2], high (f2, Nyquist]
+        # Faixas: low [0, f1], mid (f1, f2], high (f2, Nyquist efetivo]
         faixas = [
             (0.0, args.f1, "low"),
             (args.f1, args.f2, "mid"),
-            (args.f2, nyquist, "high"),
+            (args.f2, nyquist_efetivo, "high"),
         ]
 
+        info_teto = f", teto sensor={teto_sensor:.0f} Hz" if teto_sensor is not None else ""
         print(f"\n📖 Grupo: [{sensor}] | [{condicao}]  ←  {caminho_parquet.name}  "
-              f"(fs={fs:.1f} Hz, Nyquist={nyquist:.1f} Hz)")
+              f"(fs={fs:.1f} Hz, Nyquist={nyquist:.1f} Hz{info_teto})")
 
         try:
             df_grupo = carregar_grupo(caminho_parquet)
@@ -223,6 +252,13 @@ def main():
                 print(f"      ⚠️ Erro ao calcular FFT do canal {nome_canal_legivel}: {e}. Pulado.")
                 houve_erro_no_grupo = True
                 continue
+
+            # Trunca no teto do sensor (se houver) ANTES de guardar/salvar —
+            # assim nenhuma etapa seguinte (04-09) vê frequência fora da
+            # faixa em que o sensor tem resposta confiável (ver --freq-teto-*).
+            if teto_sensor is not None:
+                mascara_teto = freqs <= teto_sensor
+                freqs, amplitude = freqs[mascara_teto], amplitude[mascara_teto]
 
             espectros_grupo[nome_canal_legivel] = (freqs, amplitude)
 
@@ -283,9 +319,12 @@ def main():
         "fs_acl_hz": args.fs_acl,
         "fs_pzt_hz": args.fs_pzt,
         "fs_fallback_hz": args.fs,
+        "freq_teto_acl_hz": args.freq_teto_acl,
+        "freq_teto_pzt_hz": args.freq_teto_pzt,
+        "freq_teto_fallback_hz": args.freq_teto,
         "faixa_low_hz": f"0-{args.f1:.0f}",
         "faixa_mid_hz": f"{args.f1:.0f}-{args.f2:.0f}",
-        "faixa_high_hz": f"{args.f2:.0f}-Nyquist",
+        "faixa_high_hz": f"{args.f2:.0f}-Nyquist (limitado pelo teto do sensor, se houver)",
         "salvar_figuras": args.salvar_figuras,
         "quick": args.quick,
         "from_condicao": args.from_condicao,

@@ -281,27 +281,44 @@ def main():
             salvar_grupo(df_psd, sensor, nome_canal_arquivo, output_dir_psd)
             print(f"      💾 PSD salva: Etapas/PSD/{sensor}/{nome_canal_arquivo}.parquet")
 
-            fig, ax = plt.subplots(figsize=(11, 6), dpi=150)
+            # Duas figuras por padrão: 'full' (espectro inteiro) e 'low'
+            # (0-f1) — a faixa low costuma concentrar as tônicas de VFD/
+            # hidráulicas, e no gráfico 'full' ela fica espremida perto do
+            # eixo Y (escala linear em X cobrindo até dezenas de kHz).
             colormap = plt.get_cmap(args.cmap)
-            for i, condicao in enumerate(condicoes_com_dado):
-                ax.semilogy(freq_grid, np.maximum(matrix_psd[i, :], 1e-30),
-                            color=colormap(i % colormap.N), linewidth=1.2, label=condicao)
+            figuras_psd = [(0.0, freq_max_dados, "full")]
+            if args.f1 < freq_max_dados:
+                figuras_psd.append((0.0, args.f1, "low"))
 
-            My_axis(
-                ax, font=12,
-                xlim=[0, freq_max_dados],
-                ylim=[max(float(np.min(matrix_psd[matrix_psd > 0])) * 0.5, 1e-30), float(np.max(matrix_psd)) * 2],
-                legbox=[0.98, 0.98, 2, 9],
-                logy=True,
-                setaxis=[f"PSD (overlay) - {sensor} | {canal}\n", "Frequency (Hz)", "PSD (unit²/Hz)"],
-            )
-            ax.grid(True, which="major", linestyle="--", alpha=0.4, color="gray", zorder=0)
-            ax.set_axisbelow(True)
+            for f_min, f_max, rotulo_faixa in figuras_psd:
+                mascara_freq = (freq_grid >= f_min) & (freq_grid <= f_max)
+                if not mascara_freq.any():
+                    continue
+                freq_grid_faixa = freq_grid[mascara_freq]
+                matrix_psd_faixa = matrix_psd[:, mascara_freq]
 
-            nome_figura_psd = f"psd_overlay_{nome_canal_arquivo}.png"
-            plt.savefig(pasta_figuras_psd / nome_figura_psd, dpi=150, bbox_inches="tight")
-            plt.close(fig)
-            print(f"      🖼️ Figura salva: Figuras/{sensor}/PSD/{nome_figura_psd}")
+                fig, ax = plt.subplots(figsize=(11, 6), dpi=150)
+                for i, condicao in enumerate(condicoes_com_dado):
+                    ax.semilogy(freq_grid_faixa, np.maximum(matrix_psd_faixa[i, :], 1e-30),
+                                color=colormap(i % colormap.N), linewidth=1.2, label=condicao)
+
+                My_axis(
+                    ax, font=12,
+                    xlim=[f_min, f_max],
+                    ylim=[max(float(np.min(matrix_psd_faixa[matrix_psd_faixa > 0])) * 0.5, 1e-30),
+                          float(np.max(matrix_psd_faixa)) * 2],
+                    legbox=[0.98, 0.98, 2, 9],
+                    logy=True,
+                    setaxis=[f"PSD ({rotulo_faixa}) - {sensor} | {canal} | {f_min:.0f}-{f_max:.0f} Hz\n",
+                             "Frequency (Hz)", "PSD (unit²/Hz)"],
+                )
+                ax.grid(True, which="major", linestyle="--", alpha=0.4, color="gray", zorder=0)
+                ax.set_axisbelow(True)
+
+                nome_figura_psd = f"psd_overlay_{nome_canal_arquivo}_{rotulo_faixa}_{f_min:.0f}-{f_max:.0f}hz.png"
+                plt.savefig(pasta_figuras_psd / nome_figura_psd, dpi=150, bbox_inches="tight")
+                plt.close(fig)
+                print(f"      🖼️ Figura salva: Figuras/{sensor}/PSD/{nome_figura_psd}")
 
         sensores_ok += 1
         if houve_erro_no_sensor:

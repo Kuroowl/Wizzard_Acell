@@ -80,13 +80,15 @@ Wizzard_Acell/
 │
 ├── Scripts/
 │   ├── 01_leitura.py          # Leitura e parsing dos dados brutos
-│   ├── 02_preprocessamento.py # Filtragem e limpeza do sinal
-│   ├── 03_fft.py              # Espectro via scipy.signal.welch (método de Welch)
+│   ├── 02_preprocessamento.py # Calibração (opcional) + limpeza do sinal
+│   ├── 03_fft.py              # Espectro via scipy.signal.welch (método de Welch), truncado no teto do sensor
 │   ├── 04_picos.py            # Detecção e identificação de picos
 │   ├── 05_heatmap.py          # Mapa espectral por condição (freq x T1..Tn), por sensor/canal
 │   ├── 06_mapa_espacial.py    # Mapa espacial (freq x canal/sensor), por condição
-│   ├── 07_waterfall.py        # Gráfico Waterfall espectral
-│   └── 08_relatorio.py        # Consolidação e exportação de relatórios
+│   ├── 07_waterfall.py        # Waterfall 3D (freq x condição x amplitude)
+│   ├── 08_histograma.py       # Histograma de picos agregados entre condições
+│   ├── 09_rms_psd.py          # RMS (tempo + por banda) e PSD
+│   └── 10_relatorio.py        # Consolidação e exportação de relatórios
 │
 ├── run_pipeline.py            # Script principal orquestrador
 ├── requirements.txt           # Dependências do projeto
@@ -97,10 +99,13 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 ├── Etapas/                    # Todas as saídas .parquet, agrupadas por etapa
 │   ├── Leitura/{sensor}/{condicao}.parquet
 │   ├── Preprocessamento/{sensor}/{condicao}.parquet
-│   ├── FFT/{sensor}/{condicao}.parquet             # freq_hz + amplitude por canal
+│   ├── FFT/{sensor}/{condicao}.parquet             # freq_hz + amplitude por canal, já truncado no teto do sensor
 │   ├── Picos/{sensor}/{condicao}.parquet           # canal, escopo (low/mid/high/global), ordem_pico, freq_hz, amplitude
 │   ├── Heatmap/{sensor}/{canal}.parquet            # condicao, freq_hz, amplitude, y_valor (RAW, não escalado)
-│   └── MapaEspacial/{sensor}/{condicao}.parquet    # canal, freq_hz, amplitude, y_valor (RAW, não escalado)
+│   ├── MapaEspacial/{sensor}/{condicao}.parquet    # canal, freq_hz, amplitude, y_valor (RAW, não escalado)
+│   ├── Histograma/{sensor}/{canal}.parquet         # escopo, bin_centro_hz, bin_min_hz, bin_max_hz, contagem, amplitude_somada
+│   ├── RMS/{sensor}/{canal}.parquet                # condicao, rms_broadband_tempo, rms_low, rms_mid, rms_high, rms_full_espectro
+│   └── PSD/{sensor}/{canal}.parquet                # freq_hz + {condicao}_psd
 │
 ├── Figuras/                   # Figuras de análise
 │   └── {sensor}/
@@ -109,13 +114,43 @@ DadosTratados/                 # Gerada automaticamente na raiz de --data_dir
 │       │   ├── FFTs/          # etapa 03, OPCIONAL (--salvar-figuras, desligado por padrão)
 │       │   ├── Picos/         # etapa 04 — mesmo gráfico da FFT + marcador colorido nos picos
 │       │   └── MapaEspacial/  # etapa 06 — 3 figuras (low/mid/high), eixo Y = canal
-│       └── Heatmap/           # etapa 05 — 3 figuras por canal (low/mid/high), consolidando TODAS as condições
-│                               # (por isso fica em {sensor}/Heatmap/, não dentro de {condicao}/)
+│       ├── Heatmap/           # etapa 05 — 3 figuras por canal (low/mid/high), consolidando TODAS as condições
+│       ├── Waterfall/         # etapa 07 — 1 figura por canal (espectro inteiro), consolidando TODAS as condições
+│       ├── Histograma/        # etapa 08 — 1 figura por canal (espectro inteiro), picos agregados entre condições
+│       ├── RMS/                # etapa 09 — 1 figura por canal (tendência de RMS x condição)
+│       └── PSD/                # etapa 09 — 2 figuras por canal (full + low), PSD sobreposta entre condições
+│                               # (Heatmap/Waterfall/Histograma/RMS/PSD ficam em {sensor}/, não dentro de {condicao}/)
 │
 └── Logs/
     └── pipeline_log.txt       # log cumulativo (append), 1 entrada por execução:
                                 # timestamp, usuário, parâmetros e pastas alteradas
 ```
+
+---
+
+## 📡 Teto de frequência por sensor (etapa 03)
+
+O datasheet do acelerômetro especifica a faixa de frequência em que a
+resposta é confiável (ex.: `Frequency Range (±5%) 2-10000 Hz` ou
+`0.5-10000 Hz`, dependendo do modelo) — em ambos os casos, **10000 Hz é o
+teto**. Acima disso, o número que o sensor devolve não representa mais a
+vibração real com a mesma fidelidade.
+
+A etapa 03 trunca o espectro **nesse teto antes de salvar** em
+`Etapas/FFT` — não é um recorte visual numa figura, é a base de dados que
+todas as etapas seguintes (04-09) leem. Nenhuma delas precisa de ajuste
+próprio: como todas partem de `Etapas/FFT`, o teto já vem embutido.
+
+```bash
+python Scripts/03_fft.py --data_dir <pasta> --freq-teto-acl 10000
+```
+
+- `--freq-teto-acl` (padrão **10000.0**): teto para sensores ACL.
+- `--freq-teto-pzt` (padrão **sem teto**): mesma ideia para PZT — não há
+  datasheet de PZT confirmando um limite ainda; informe se/quando houver.
+- `--freq-teto`: fallback para sensores fora do mapeamento ACL/PZT.
+- Use `0` (ou negativo) em qualquer um desses pra desligar o teto daquele
+  sensor (usa Nyquist = fs/2 inteiro).
 
 ---
 
@@ -348,12 +383,12 @@ cada condição e se espalha no histograma agregado — assinatura de algo
 ligado ao **ponto de operação** (hidráulico/VFD), não à máquina em si.
 
 ```bash
-python Scripts/08_histograma.py --data_dir <pasta> --n-bins 60
+python Scripts/08_histograma.py --data_dir <pasta> --n-bins 100
 ```
 
-- `--n-bins`: número de bins do histograma (padrão 60), largura calculada
-  a partir do intervalo real dos dados (ou de `--freq-min`/`--freq-max`,
-  se informados).
+- `--n-bins`: número de bins do histograma (padrão **100**), largura
+  calculada a partir do intervalo real dos dados (ou de
+  `--freq-min`/`--freq-max`, se informados).
 - `--freq-min`/`--freq-max`: restringe o histograma a uma faixa específica
   em vez do espectro inteiro. Padrão: sem recorte (usa todo o intervalo
   dos picos encontrados).
@@ -362,6 +397,9 @@ python Scripts/08_histograma.py --data_dir <pasta> --n-bins 60
   `src/histogram_and_picosdetector.py`). Com esta flag, soma a amplitude
   dos picos no bin em vez de contar — realça bins com picos fortes mesmo
   que raros.
+- Cor da barra por tipo de sensor: **verde para ACL, preto para os
+  demais** (PZT incluso) — mesma convenção já usada no gráfico de FFT da
+  etapa 04.
 - Salva o resultado consolidado em `Etapas/Histograma/{sensor}/{canal}.parquet`
   (colunas: `escopo`, `bin_centro_hz`, `bin_min_hz`, `bin_max_hz`,
   `contagem`, `amplitude_somada`) — pra a futura etapa 10 (relatório) poder
@@ -406,7 +444,10 @@ Gera, por sensor/canal:
 2. **PSD sobreposta** (`Figuras/{sensor}/PSD/`): todas as condições no
    mesmo gráfico (escala log), pra comparar níveis diretamente — diferente
    do heatmap (cor) e do waterfall (3D), aqui dá pra ler o valor com
-   precisão.
+   precisão. **Duas figuras por canal por padrão**: `full` (espectro
+   inteiro) e `low` (0-`f1`) — a faixa low costuma concentrar as tônicas
+   de VFD/hidráulicas, e no gráfico `full` ela fica espremida perto do
+   eixo Y (escala linear em X cobrindo até dezenas de kHz).
 3. Dados consolidados em `Etapas/RMS/{sensor}/{canal}.parquet` (colunas:
    `condicao`, `rms_broadband_tempo`, `rms_low`, `rms_mid`, `rms_high`,
    `rms_full_espectro` — este último é a versão "toda a banda, via

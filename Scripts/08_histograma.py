@@ -35,7 +35,9 @@ sanitizar_nome = _espectro.sanitizar_nome
 # uma faixa específica, use --freq-min/--freq-max.
 ESCOPO_USADO = "global"
 ROTULO_FIGURA = "full"
-COR_HISTOGRAMA = "#7C4DFF"
+def cor_por_sensor(sensor: str) -> str:
+    """Mesma convenção já usada em 04_picos.py: ACL verde, demais sensores preto."""
+    return "green" if str(sensor).upper() == "ACL" else "black"
 
 METODO_DESCRICAO = (
     "Agrega (pool) os picos JÁ IDENTIFICADOS pela etapa 04 (scipy.signal.find_peaks, "
@@ -60,8 +62,8 @@ def main():
                          help="Inclui no agregado só as condições a partir desta, inclusive (ex.: "
                               "--from T3 usa T3, T4, T5... e ignora T1/T2). Extrai o número do padrão "
                               "T<N> no nome da condição; nomes fora desse padrão nunca são descartados.")
-    parser.add_argument("--n-bins", type=int, default=60,
-                         help="Número de bins do histograma (padrão: 60). A largura do bin é calculada "
+    parser.add_argument("--n-bins", type=int, default=100,
+                         help="Número de bins do histograma (padrão: 100). A largura do bin é calculada "
                               "a partir do intervalo real dos dados (ou de --freq-min/--freq-max, se "
                               "informados).")
     parser.add_argument("--freq-min", type=float, default=None,
@@ -193,7 +195,7 @@ def main():
             fig, ax = plt.subplots(figsize=(12, 6), dpi=150)
             largura_bin = bordas[1] - bordas[0]
             ax.bar(centros, valores_plot, width=largura_bin * 0.95,
-                   color=COR_HISTOGRAMA, edgecolor="black", alpha=0.75)
+                   color=cor_por_sensor(sensor), edgecolor="black", alpha=0.75)
 
             ax.grid(True, axis="y", which="major", linestyle="--", alpha=0.6, color="gray", zorder=0)
             ax.set_axisbelow(True)
