@@ -12,11 +12,12 @@ PIPELINE_STEPS = [
     "05_heatmap.py",
     "06_mapa_espacial.py",
     "07_waterfall.py",
-    "08_relatorio.py",
+    "08_histograma.py",
+    "09_relatorio.py",
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py", "08_histograma.py"}
 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
@@ -44,6 +45,10 @@ STEPS_SUPORTAM_CALIBRACAO = {"02_preprocessamento.py"}
 # Script do waterfall 3D (etapa 07) — lê direto de Etapas/FFT, independente
 # do heatmap (05)/mapa espacial (06); só precisa da etapa 03 já ter rodado.
 STEPS_SUPORTAM_WATERFALL = {"07_waterfall.py"}
+
+# Script do histograma de picos agregados (etapa 08) — lê direto de
+# Etapas/Picos (saída da etapa 04), independente de 05/06/07.
+STEPS_SUPORTAM_HISTOGRAMA = {"08_histograma.py"}
 
 # --metadados-condicoes vale para qualquer etapa que monte eixo Y por
 # condição (heatmap 2D e waterfall 3D usam o mesmo CSV/formato).
@@ -106,7 +111,8 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              escala: str = None, cmap: str = None,
              freq_max: float = None, freq_resolucao: float = None, db_min: float = None,
              sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
-             grupo_alvo: str = None, elev: float = None, azim: float = None) -> bool:
+             grupo_alvo: str = None, elev: float = None, azim: float = None,
+             n_bins: int = None, peso_amplitude: bool = False) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
     if not script_path.exists():
@@ -120,7 +126,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
         else:
             print(f"   ℹ️ {script_name} ainda não implementa --quick; rodando normalmente.")
     if from_condicao:
-        # Todas as etapas (01-06) já suportam --from.
+        # Todas as etapas (01-08) já suportam --from.
         cmd.extend(["--from", from_condicao])
     if ler_todos:
         if script_name == "01_leitura.py":
@@ -188,6 +194,11 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--elev", str(elev)])
         if azim is not None:
             cmd.extend(["--azim", str(azim)])
+    if script_name in STEPS_SUPORTAM_HISTOGRAMA:
+        if n_bins is not None:
+            cmd.extend(["--n-bins", str(n_bins)])
+        if peso_amplitude:
+            cmd.append("--peso-amplitude")
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -278,6 +289,10 @@ def main():
                          help="Elevação (graus) da câmera 3D do waterfall (etapa 07; padrão do script: 25.0).")
     parser.add_argument("--azim", type=float, default=None,
                          help="Azimute (graus) da câmera 3D do waterfall (etapa 07; padrão do script: -60.0).")
+    parser.add_argument("--n-bins", type=int, default=None,
+                         help="Número de bins do histograma de picos agregados da etapa 08 (padrão do script: 60).")
+    parser.add_argument("--peso-amplitude", action="store_true",
+                         help="Etapa 08: histograma por amplitude somada em vez de contagem de picos.")
     args = parser.parse_args()
 
     if args.ler_todos and args.grupo_alvo:
@@ -327,7 +342,8 @@ def main():
                             freq_resolucao=args.freq_resolucao, db_min=args.db_min,
                             sem_picos=args.sem_picos, from_condicao=args.from_condicao,
                             ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo,
-                            elev=args.elev, azim=args.azim)
+                            elev=args.elev, azim=args.azim,
+                            n_bins=args.n_bins, peso_amplitude=args.peso_amplitude)
         if not success:
             break
     else:

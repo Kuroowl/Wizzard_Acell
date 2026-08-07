@@ -321,3 +321,45 @@ python Scripts/07_waterfall.py --data_dir <pasta> \
 Não salva nenhum parquet em `Etapas/` — é uma etapa puramente visual, sem
 nenhuma etapa posterior que dependa da sua saída (ao contrário da 04, cujos
 picos são reaproveitados pela 05/06).
+
+---
+
+## 📊 Etapa 08 — Histograma de picos agregados
+
+Pergunta diferente das etapas anteriores: em vez de "como o espectro muda
+entre condições" (05/06/07), é "que frequências aparecem **toda vez**,
+independente da condição, vs. que frequências só aparecem em pontos de
+operação específicos".
+
+**Independência**: lê direto de `Etapas/Picos` (saída da etapa 04) — não
+recalcula pico nem FFT, não depende de 05/06/07. Dá pra rodar só
+`01→02→03→04→08`.
+
+**Método**: empilha (pool) os picos já identificados pela etapa 04 de
+**todas as condições** de um sensor/canal num histograma só, separado por
+faixa (`low`/`mid`/`high`/`full` — `full` usa os picos de escopo `global`
+da etapa 04, busca no espectro inteiro). Um pico que cai sempre no mesmo
+bin (mesma frequência, em toda condição) vira uma barra alta e estreita —
+assinatura de algo **fixo na máquina** (ressonância estrutural, defeito de
+rolamento, folga mecânica). Um pico que se desloca com a condição (ex.: a
+própria frequência do VFD) cai em bins diferentes a cada condição e se
+espalha no histograma agregado — assinatura de algo ligado ao **ponto de
+operação** (hidráulico/VFD), não à máquina em si.
+
+```bash
+python Scripts/08_histograma.py --data_dir <pasta> --n-bins 60
+```
+
+- `--n-bins`: número de bins POR FIGURA (padrão 60). Cada faixa (low/mid/
+  high/full) tem sua própria largura de bin, calculada a partir do
+  intervalo real dos dados daquela faixa — assim todas ficam com resolução
+  visual comparável, mesmo tendo larguras muito diferentes.
+- `--peso-amplitude`: por padrão, o histograma é por **contagem** (quantas
+  condições tiveram um pico naquele bin — igual ao protótipo original,
+  `src/histogram_and_picosdetector.py`). Com esta flag, soma a amplitude
+  dos picos no bin em vez de contar — realça bins com picos fortes mesmo
+  que raros.
+- Salva o resultado consolidado em `Etapas/Histograma/{sensor}/{canal}.parquet`
+  (colunas: `escopo`, `bin_centro_hz`, `bin_min_hz`, `bin_max_hz`,
+  `contagem`, `amplitude_somada`) — pra a futura etapa 09 (relatório) poder
+  reaproveitar sem reprocessar nada.
