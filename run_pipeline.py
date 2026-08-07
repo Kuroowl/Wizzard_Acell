@@ -13,17 +13,18 @@ PIPELINE_STEPS = [
     "06_mapa_espacial.py",
     "07_waterfall.py",
     "08_histograma.py",
-    "09_relatorio.py",
+    "09_rms_psd.py",
+    "10_relatorio.py",
 ]
 
 # Scripts que hoje sabem responder ao teste rápido (aceitam --quick)
-STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py", "08_histograma.py"}
+STEPS_SUPORTAM_QUICK = {"01_leitura.py", "02_preprocessamento.py", "03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "07_waterfall.py", "08_histograma.py", "09_rms_psd.py"}
 
 # Scripts que hoje aceitam --fs / --fs-acl / --fs-pzt (taxa de amostragem)
 STEPS_SUPORTAM_FS = {"02_preprocessamento.py", "03_fft.py"}
 
 # Scripts que aceitam --f1/--f2 (limites de faixa da FFT)
-STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py"}
+STEPS_SUPORTAM_FAIXAS_FFT = {"03_fft.py", "04_picos.py", "05_heatmap.py", "06_mapa_espacial.py", "09_rms_psd.py"}
 
 # Script que aceita --salvar-figuras (por padrão a etapa 03 não gera mais
 # figuras de FFT, já que a 04 gera o mesmo gráfico com os picos marcados)
@@ -52,7 +53,7 @@ STEPS_SUPORTAM_HISTOGRAMA = {"08_histograma.py"}
 
 # --metadados-condicoes vale para qualquer etapa que monte eixo Y por
 # condição (heatmap 2D e waterfall 3D usam o mesmo CSV/formato).
-STEPS_SUPORTAM_METADADOS_CONDICOES = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_WATERFALL
+STEPS_SUPORTAM_METADADOS_CONDICOES = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_WATERFALL | {"09_rms_psd.py"}
 
 # --escala/--cmap/--freq-max/--freq-resolucao/--db-min: parâmetros de
 # escala espectral compartilhados por heatmap, mapa espacial e waterfall.
@@ -60,6 +61,11 @@ STEPS_SUPORTAM_METADADOS_CONDICOES = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_WAT
 # espacial; no waterfall 3D ainda não há esse overlay).
 STEPS_SUPORTAM_ESCALA_MAPA = STEPS_SUPORTAM_HEATMAP | STEPS_SUPORTAM_MAPA_ESPACIAL
 STEPS_SUPORTAM_ESCALA_ESPECTRAL = STEPS_SUPORTAM_ESCALA_MAPA | STEPS_SUPORTAM_WATERFALL
+
+# Etapa 09 (RMS/PSD) — usa --cmap e --freq-resolucao (grid da PSD sobreposta),
+# mas não --escala/--db-min/--sem-picos (não tem menu de escala nem overlay
+# de picos).
+STEPS_SUPORTAM_RMS_PSD = {"09_rms_psd.py"}
 
 
 def selecionar_pasta_windows() -> str:
@@ -194,6 +200,11 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--elev", str(elev)])
         if azim is not None:
             cmd.extend(["--azim", str(azim)])
+    if script_name in STEPS_SUPORTAM_RMS_PSD:
+        if cmap is not None:
+            cmd.extend(["--cmap", cmap])
+        if freq_resolucao is not None:
+            cmd.extend(["--freq-resolucao", str(freq_resolucao)])
     if script_name in STEPS_SUPORTAM_HISTOGRAMA:
         if n_bins is not None:
             cmd.extend(["--n-bins", str(n_bins)])
@@ -240,9 +251,9 @@ def main():
     parser.add_argument("--fs-pzt", type=float, default=None,
                          help="Taxa de amostragem (Hz) dos sensores PZT (padrão do script: 12500.0).")
     parser.add_argument("--f1", type=float, default=None,
-                         help="Limite entre faixa baixa e média da FFT, em Hz (padrão do script: 15.0).")
+                         help="Limite entre faixa baixa e média da FFT, em Hz (etapas 03/04/05/06/09; padrão do script: 15.0).")
     parser.add_argument("--f2", type=float, default=None,
-                         help="Limite entre faixa média e alta da FFT, em Hz (padrão do script: 400.0).")
+                         help="Limite entre faixa média e alta da FFT, em Hz (etapas 03/04/05/06/09; padrão do script: 400.0).")
     parser.add_argument("--salvar-figuras-fft", action="store_true",
                          help="Gera as figuras de FFT por faixa na etapa 03 (desligado por padrão; "
                               "a etapa 04 já gera o mesmo gráfico com os picos marcados).")
@@ -264,7 +275,8 @@ def main():
                          help="Janela usada pelo welch na etapa 03 (padrão do script: hann).")
     parser.add_argument("--metadados-condicoes", type=str, default=None,
                          help="CSV opcional (condicao,f_vfd_hz,vazao_m3h,reducao_shaft,reducao_cavidade) "
-                              "para a etapa 05 usar eixo Y contínuo + linhas teóricas no heatmap.")
+                              "para as etapas 05/07/09 usarem eixo contínuo (heatmap, waterfall, "
+                              "tendência de RMS) em vez de categórico.")
     parser.add_argument("--metadados-canais", type=str, default=None,
                          help="CSV opcional (sensor,canal,posicao_m,rotulo) para a etapa 06 usar posição "
                               "física no eixo Y do mapa espacial.")
@@ -280,8 +292,8 @@ def main():
     parser.add_argument("--db-min", type=float, default=None,
                          help="Piso (dB) quando --escala db ou db-global (padrão do script: -40.0).")
     parser.add_argument("--cmap", type=str, default=None,
-                         help="Colormap do matplotlib para as etapas 05/06/07 (padrão de cada script: "
-                              "viridis no heatmap/mapa espacial, jet no waterfall).")
+                         help="Colormap do matplotlib para as etapas 05/06/07/09 (padrão de cada script: "
+                              "viridis no heatmap/mapa espacial, jet no waterfall, tab10 na PSD sobreposta).")
     parser.add_argument("--freq-max", type=float, default=None,
                          help="Frequência máxima (Hz) nas etapas 05/06/07 (padrão do script: automático) "
                               "e limite superior opcional do histograma da etapa 08.")
@@ -289,7 +301,7 @@ def main():
                          help="Limite inferior opcional (Hz) do histograma da etapa 08. Padrão do script: "
                               "sem recorte (usa todo o intervalo dos picos encontrados).")
     parser.add_argument("--freq-resolucao", type=float, default=None,
-                         help="Resolução (Hz) do grid de frequência nas etapas 05/06/07 (padrão do script: 0.5).")
+                         help="Resolução (Hz) do grid de frequência nas etapas 05/06/07/09 (padrão do script: 0.5).")
     parser.add_argument("--sem-picos", action="store_true",
                          help="Não sobrepõe os picos (Etapas/Picos) no heatmap da etapa 05/06 (a etapa 07 "
                               "ainda não tem esse overlay).")
