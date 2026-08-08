@@ -124,6 +124,7 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
              sem_picos: bool = False, from_condicao: str = None, ler_todos: bool = False,
              grupo_alvo: str = None, elev: float = None, azim: float = None,
              n_bins: int = None, peso_amplitude: bool = False, freq_min: float = None,
+             y_max: float = None,
              freq_teto_acl: float = None, freq_teto_pzt: float = None, freq_teto: float = None) -> bool:
     """Executa um script de etapa passando o caminho dos dados."""
     script_path = Path("Scripts") / script_name
@@ -227,6 +228,8 @@ def run_step(script_name: str, input_path: Path, quick: bool = False, fs: float 
             cmd.extend(["--freq-max", str(freq_max)])
         if peso_amplitude:
             cmd.append("--peso-amplitude")
+        if y_max is not None:
+            cmd.extend(["--y-max", str(y_max)])
 
     print(f"\n▶️ Executando: {script_name}...")
     result = subprocess.run(cmd)
@@ -317,10 +320,9 @@ def main():
                               "viridis no heatmap/mapa espacial, jet no waterfall, tab10 na PSD sobreposta).")
     parser.add_argument("--freq-max", type=float, default=None,
                          help="Frequência máxima (Hz) nas etapas 05/06/07 (padrão do script: automático) "
-                              "e limite superior opcional do histograma da etapa 08.")
+                              "e limite superior fixo do histograma da etapa 08 (padrão do script: 1000.0).")
     parser.add_argument("--freq-min", type=float, default=None,
-                         help="Limite inferior opcional (Hz) do histograma da etapa 08. Padrão do script: "
-                              "sem recorte (usa todo o intervalo dos picos encontrados).")
+                         help="Limite inferior fixo (Hz) do histograma da etapa 08 (padrão do script: 0.0).")
     parser.add_argument("--freq-resolucao", type=float, default=None,
                          help="Resolução (Hz) do grid de frequência nas etapas 05/06/07/09 (padrão do script: 0.5).")
     parser.add_argument("--sem-picos", action="store_true",
@@ -332,6 +334,9 @@ def main():
                          help="Azimute (graus) da câmera 3D do waterfall (etapa 07; padrão do script: -60.0).")
     parser.add_argument("--n-bins", type=int, default=None,
                          help="Número de bins do histograma de picos agregados da etapa 08 (padrão do script: 100).")
+    parser.add_argument("--y-max", type=float, default=None,
+                         help="Teto fixo do eixo Y (contagem) do histograma da etapa 08 (padrão do script: "
+                              "30.0 no modo contagem; sem teto fixo no modo --peso-amplitude).")
     parser.add_argument("--peso-amplitude", action="store_true",
                          help="Etapa 08: histograma por amplitude somada em vez de contagem de picos.")
     args = parser.parse_args()
@@ -385,6 +390,7 @@ def main():
                             ler_todos=args.ler_todos, grupo_alvo=args.grupo_alvo,
                             elev=args.elev, azim=args.azim,
                             n_bins=args.n_bins, peso_amplitude=args.peso_amplitude, freq_min=args.freq_min,
+                            y_max=args.y_max,
                             freq_teto_acl=args.freq_teto_acl, freq_teto_pzt=args.freq_teto_pzt,
                             freq_teto=args.freq_teto)
         if not success:

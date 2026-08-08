@@ -387,11 +387,16 @@ python Scripts/08_histograma.py --data_dir <pasta> --n-bins 100
 ```
 
 - `--n-bins`: número de bins do histograma (padrão **100**), largura
-  calculada a partir do intervalo real dos dados (ou de
-  `--freq-min`/`--freq-max`, se informados).
-- `--freq-min`/`--freq-max`: restringe o histograma a uma faixa específica
-  em vez do espectro inteiro. Padrão: sem recorte (usa todo o intervalo
-  dos picos encontrados).
+  calculada a partir do intervalo do eixo X (`--freq-min`/`--freq-max`).
+- `--freq-min`/`--freq-max`: intervalo do eixo X, **fixo por padrão**
+  (`0`-`1000` Hz) — antes era calculado a partir do menor/maior pico
+  encontrado, o que fazia o eixo mudar de figura pra figura e dificultava
+  comparar; agora fica sempre igual, a menos que você informe outro valor.
+- `--y-max`: teto fixo do eixo Y (padrão **30**, no modo contagem — mesmo
+  motivo do `--freq-min`/`--freq-max`, eixo comparável entre figuras). No
+  modo `--peso-amplitude`, sem teto fixo por padrão (a escala de amplitude
+  varia demais entre canais/calibração pra um valor fixo fazer sentido por
+  padrão); informe `--y-max` explicitamente se quiser fixar também.
 - `--peso-amplitude`: por padrão, o histograma é por **contagem** (quantas
   condições tiveram um pico naquele bin — igual ao protótipo original,
   `src/histogram_and_picosdetector.py`). Com esta flag, soma a amplitude

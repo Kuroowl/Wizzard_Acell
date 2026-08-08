@@ -66,19 +66,29 @@ def main():
                          help="Número de bins do histograma (padrão: 100). A largura do bin é calculada "
                               "a partir do intervalo real dos dados (ou de --freq-min/--freq-max, se "
                               "informados).")
-    parser.add_argument("--freq-min", type=float, default=None,
-                         help="Frequência mínima (Hz) incluída no histograma. Padrão: menor frequência "
-                              "entre os picos encontrados (sem recorte).")
-    parser.add_argument("--freq-max", type=float, default=None,
-                         help="Frequência máxima (Hz) incluída no histograma. Padrão: maior frequência "
-                              "entre os picos encontrados (sem recorte). Use --freq-min/--freq-max juntos "
-                              "para restringir a uma faixa específica em vez do espectro inteiro.")
+    parser.add_argument("--freq-min", type=float, default=0.0,
+                         help="Frequência mínima (Hz) incluída no histograma (padrão: 0.0 — eixo fixo, "
+                              "não é mais calculado a partir do menor pico encontrado, pra manter as "
+                              "figuras comparáveis entre execuções/condições diferentes).")
+    parser.add_argument("--freq-max", type=float, default=1000.0,
+                         help="Frequência máxima (Hz) incluída no histograma (padrão: 1000.0 — eixo fixo, "
+                              "mesmo motivo do --freq-min). Use --freq-min/--freq-max juntos para outra "
+                              "faixa fixa, se quiser.")
+    parser.add_argument("--y-max", type=float, default=None,
+                         help="Teto do eixo Y (padrão: 30.0 no modo contagem — fixo, não escala com o "
+                              "máximo encontrado, pelo mesmo motivo do --freq-min/--freq-max; no modo "
+                              "--peso-amplitude, sem teto fixo por padrão, pois a escala de amplitude "
+                              "varia muito entre canais/calibração — informe aqui se quiser fixar também.")
     parser.add_argument("--peso-amplitude", action="store_true",
                          help="Em vez de contar quantas vezes um pico caiu em cada bin, soma a "
                               "amplitude dos picos daquele bin. Realça bins com picos fortes mesmo "
                               "que raros; por padrão (sem esta flag) o histograma é por CONTAGEM "
                               "(quantas condições tiveram um pico ali), igual ao protótipo original.")
     args = parser.parse_args()
+
+    y_max_fixo = args.y_max
+    if y_max_fixo is None and not args.peso_amplitude:
+        y_max_fixo = 30.0
 
     raiz_path = Path(args.data_dir)
 
@@ -153,24 +163,20 @@ def main():
             freqs = df_escopo["freq_hz"].to_numpy()
             amplitudes = df_escopo["amplitude"].to_numpy()
 
-            if args.freq_min is not None:
-                mascara = freqs >= args.freq_min
-                freqs, amplitudes = freqs[mascara], amplitudes[mascara]
-            if args.freq_max is not None:
-                mascara = freqs <= args.freq_max
-                freqs, amplitudes = freqs[mascara], amplitudes[mascara]
+            mascara = (freqs >= args.freq_min) & (freqs <= args.freq_max)
+            freqs, amplitudes = freqs[mascara], amplitudes[mascara]
 
             n_condicoes_com_pico = df_escopo["condicao"].nunique()
 
             if freqs.size == 0:
-                print(f"      ⚠️ Canal {canal}: nenhum pico no intervalo pedido, pulando canal.")
+                print(f"      ⚠️ Canal {canal}: nenhum pico entre {args.freq_min:.0f}-{args.freq_max:.0f} Hz "
+                      f"(--freq-min/--freq-max), pulando canal.")
                 houve_erro_no_sensor = True
                 continue
 
-            f_min = args.freq_min if args.freq_min is not None else float(freqs.min())
-            f_max = args.freq_max if args.freq_max is not None else float(freqs.max())
+            f_min, f_max = args.freq_min, args.freq_max
             if f_max <= f_min:
-                f_max = f_min + 1.0  # evita bins degenerados quando só há 1 valor único
+                f_max = f_min + 1.0  # evita bins degenerados se --freq-min/--freq-max vierem invertidos
 
             bordas = np.linspace(f_min, f_max, args.n_bins + 1)
             contagem, _ = np.histogram(freqs, bins=bordas)
@@ -179,6 +185,7 @@ def main():
 
             valores_plot = soma_amplitude if args.peso_amplitude else contagem
             y_label = "Amplitude somada (picos no bin)" if args.peso_amplitude else "Contagem de picos (condições)"
+            y_lim_sup = y_max_fixo if y_max_fixo is not None else max(float(valores_plot.max()) * 1.15, 1e-9)
 
             linhas_saida = [
                 {
@@ -203,7 +210,7 @@ def main():
             My_axis(
                 ax, font=12,
                 xlim=[f_min, f_max],
-                ylim=[0, max(float(valores_plot.max()) * 1.15, 1e-9)],
+                ylim=[0, y_lim_sup],
                 setaxis=[
                     f"Histogram of Peaks ({ROTULO_FIGURA}) - {sensor} | {canal} | "
                     f"{f_min:.0f}-{f_max:.0f} Hz | {n_condicoes_com_pico}/{len(condicoes_disponiveis)} condições\n",
@@ -233,6 +240,7 @@ def main():
         "n_bins": args.n_bins,
         "freq_min": args.freq_min,
         "freq_max": args.freq_max,
+        "y_max_efetivo": y_max_fixo,
         "peso_amplitude": args.peso_amplitude,
         "quick": args.quick,
         "from_condicao": args.from_condicao,
